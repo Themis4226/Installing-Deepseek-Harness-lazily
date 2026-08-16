@@ -1,0 +1,11 @@
+﻿{
+    "product":  "DSH Desktop Launcher Lite",
+    "launcherVersion":  "1.1.0.0",
+    "dshPackage":  "@deepseek-ai/dsh",
+    "dshVersion":  "0.1.0-rc.6",
+    "platform":  "win32",
+    "architecture":  "x64",
+    "nodeBundled":  false,
+    "requiredNode":  "x64 Node.js ^22.19.0 || \u003e=24.0.0",
+    "generatedUtc":  "2026-08-14T16:06:16.8331918Z"
+}
