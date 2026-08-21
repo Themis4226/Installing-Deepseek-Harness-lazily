@@ -1,0 +1,7 @@
+# Preserve third-party generated WebView2 files verbatim. Their upstream headers
+# contain intentional trailing whitespace that should not fail repository checks.
+launcher/vendor/webview2/** -whitespace
+
+*.ico binary
+*.lib binary
+*.png binary
