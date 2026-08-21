@@ -33,6 +33,11 @@ A launcher-only hotfix must not rebuild or republish an unchanged runtime. Publi
 launcher package first, then update only the feed's launcher compatibility gate and release-notes link while retaining
 the existing runtime asset URL, byte size, and SHA-256.
 
+The launcher's General-settings integration is also launcher-owned. The complete package carries it separately and the
+launcher maps its two fixed module specifiers from a Node preload before applying the overlay. It never copies the
+integration into the active runtime. Do not modify or relabel the official DSH runtime ZIP merely to ship a launcher UI
+change.
+
 Run the small fixture tests with:
 
 ```powershell

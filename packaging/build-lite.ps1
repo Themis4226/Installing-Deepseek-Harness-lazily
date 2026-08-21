@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.2.1',
+    [string]$Version = '1.3.0',
     [string]$DshVersion = '0.1.1-rc.2',
     [string]$RuntimeArchive,
     [string]$NodeExecutable = 'node.exe'
@@ -38,12 +38,44 @@ $exePath = Join-Path $workspace 'DeepSeek Harness.exe'
 $packagePath = Join-Path $workspace 'package.json'
 $lockPath = Join-Path $workspace 'pnpm-lock.yaml'
 $workspaceConfigPath = Join-Path $workspace 'pnpm-workspace.yaml'
-foreach ($required in @($exePath, $packagePath, $lockPath, $workspaceConfigPath, $RuntimeArchive)) {
+$integrationPath = Join-Path $workspace 'launcher-integration'
+$integrationPackagePath = Join-Path $integrationPath 'dsh-launcher-update-ui'
+$integrationRequired = @(
+    (Join-Path $integrationPath 'cordis.patch.yml'),
+    (Join-Path $integrationPackagePath 'package.json'),
+    (Join-Path $integrationPackagePath 'lib\index.js'),
+    (Join-Path $integrationPackagePath 'lib\client.js')
+)
+foreach ($required in @($exePath, $packagePath, $lockPath, $workspaceConfigPath, $RuntimeArchive) + $integrationRequired) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Missing build input: $required" }
 }
 
 $exeVersion = (Get-Item -LiteralPath $exePath).VersionInfo.FileVersion
 if ($exeVersion -ne "$Version.0") { throw "EXE version $exeVersion does not match release $Version" }
+$launcherBuildInputs = @(
+    (Join-Path $workspace 'launcher\DeepSeekHarnessLauncher.cpp'),
+    (Join-Path $workspace 'launcher\DeepSeekHarnessLauncher.rc'),
+    (Join-Path $workspace 'launcher\DeepSeekHarnessLauncher.manifest'),
+    (Join-Path $workspace 'launcher\resource.h'),
+    (Join-Path $workspace 'launcher\updater.mjs')
+)
+$newestLauncherInput = $launcherBuildInputs | Get-Item | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+$exeItem = Get-Item -LiteralPath $exePath
+if ($exeItem.LastWriteTimeUtc -lt $newestLauncherInput.LastWriteTimeUtc) {
+    throw "Launcher EXE is older than build input: $($newestLauncherInput.FullName)"
+}
+$exeBytes = [IO.File]::ReadAllBytes($exePath)
+$exeUtf8 = [Text.Encoding]::UTF8.GetString($exeBytes)
+$exeUtf16 = [Text.Encoding]::Unicode.GetString($exeBytes)
+foreach ($requiredMarker in @('registerHooks', '@themis4226/dsh-launcher-update-ui')) {
+    if (-not $exeUtf8.Contains($requiredMarker)) { throw "Launcher EXE is missing marker: $requiredMarker" }
+}
+foreach ($requiredMarker in @('DSH_LAUNCHER_INTEGRATION_ROOT', 'dsh-launcher:v1:update.check')) {
+    if (-not $exeUtf16.Contains($requiredMarker)) { throw "Launcher EXE is missing marker: $requiredMarker" }
+}
+foreach ($forbiddenMarker in @('帮助', '无法准备桌面启动器设置集成。')) {
+    if ($exeUtf16.Contains($forbiddenMarker)) { throw "Launcher EXE still contains removed marker: $forbiddenMarker" }
+}
 
 New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
 if (Test-Path -LiteralPath $stagePath) { Remove-Item -LiteralPath $stagePath -Recurse -Force }
@@ -59,6 +91,13 @@ Copy-Item -LiteralPath $workspaceConfigPath -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README-LITE.md') -Destination (Join-Path $stagePath 'README.md')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'PUBLIC-RELEASE-NOTICE.md') -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $workspace 'THIRD_PARTY_NOTICES.md') -Destination $stagePath
+$stageIntegrationPath = Join-Path $stagePath 'launcher-integration'
+$stageIntegrationPackage = Join-Path $stageIntegrationPath 'dsh-launcher-update-ui'
+New-Item -ItemType Directory -Path (Join-Path $stageIntegrationPackage 'lib') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $integrationPath 'cordis.patch.yml') -Destination $stageIntegrationPath
+Copy-Item -LiteralPath (Join-Path $integrationPackagePath 'package.json') -Destination $stageIntegrationPackage
+Copy-Item -LiteralPath (Join-Path $integrationPackagePath 'lib\index.js') -Destination (Join-Path $stageIntegrationPackage 'lib')
+Copy-Item -LiteralPath (Join-Path $integrationPackagePath 'lib\client.js') -Destination (Join-Path $stageIntegrationPackage 'lib')
 
 $nodeCommand = if ([IO.Path]::IsPathRooted($NodeExecutable)) {
     if (-not (Test-Path -LiteralPath $NodeExecutable -PathType Leaf)) {
@@ -87,6 +126,14 @@ $dshEntryPath = Join-Path $stagePath 'node_modules\@deepseek-ai\dsh\lib\bin.js'
 if (-not (Test-Path -LiteralPath $dshEntryPath -PathType Leaf)) { throw 'DSH runtime entry is missing.' }
 $dshPackage = Get-Content -LiteralPath $dshPackagePath -Encoding utf8 -Raw | ConvertFrom-Json
 if ($dshPackage.version -ne $DshVersion) { throw "Unexpected DSH version: $($dshPackage.version)" }
+$runtimeIntegrationPackage = Join-Path $stagePath 'node_modules\@themis4226\dsh-launcher-update-ui'
+if (Test-Path -LiteralPath $runtimeIntegrationPackage) {
+    throw 'Launcher integration must remain outside the immutable DSH runtime tree.'
+}
+$integrationPackage = Get-Content -LiteralPath (Join-Path $integrationPackagePath 'package.json') -Encoding utf8 -Raw | ConvertFrom-Json
+if ($integrationPackage.name -ne '@themis4226/dsh-launcher-update-ui') {
+    throw "Unexpected launcher integration package: $($integrationPackage.name)"
+}
 
 $webViewLicenseRoot = Join-Path $stagePath 'licenses\WebView2'
 New-Item -ItemType Directory -Path $webViewLicenseRoot -Force | Out-Null
@@ -103,6 +150,7 @@ $release = [ordered]@{
     launcherVersion = "$Version.0"
     dshPackage = '@deepseek-ai/dsh'
     dshVersion = $dshPackage.version
+    launcherIntegration = "$($integrationPackage.name)@$($integrationPackage.version)"
     platform = 'win32'
     architecture = 'x64'
     nodeBundled = $false

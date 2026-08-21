@@ -76,6 +76,20 @@ try {
     Assert-True $failedAsExpected 'builder did not reject a mismatched DSH package version'
     Assert-True (-not [System.IO.Directory]::Exists($wrongOutput)) 'failed build published an output directory'
 
+    $forbiddenPackage = Join-Path $sourceRoot 'node_modules\@themis4226\dsh-launcher-update-ui'
+    [System.IO.Directory]::CreateDirectory($forbiddenPackage) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $forbiddenPackage 'package.json'), '{}', $utf8WithoutBom)
+    $forbiddenOutput = Join-Path $testRoot 'launcher-integration-output'
+    $forbiddenFailedAsExpected = $false
+    try {
+        & $builder -SourceRoot $sourceRoot -Version $version -OutputDirectory $forbiddenOutput -NodeExecutable $NodeExecutable | Out-Null
+    }
+    catch {
+        $forbiddenFailedAsExpected = $_.Exception.Message -match 'Launcher integration must not be included'
+    }
+    Assert-True $forbiddenFailedAsExpected 'builder accepted launcher integration inside runtime node_modules'
+    Assert-True (-not [System.IO.Directory]::Exists($forbiddenOutput)) 'forbidden build published an output directory'
+
     $maliciousRoot = Join-Path $testRoot 'malicious-stage'
     $maliciousRuntime = Join-Path $maliciousRoot 'runtime'
     [System.IO.Directory]::CreateDirectory((Join-Path $maliciousRuntime 'data')) | Out-Null
@@ -95,7 +109,7 @@ try {
 
     [ordered]@{
         status = 'passed'
-        tests = 10
+        tests = 11
         fixtureArchive = $buildResult.archive
         fixtureSha256 = $buildResult.sha256
     } | ConvertTo-Json -Compress

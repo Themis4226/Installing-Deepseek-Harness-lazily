@@ -1,0 +1,25 @@
+{
+  "name": "@themis4226/dsh-launcher-update-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DSH General-settings integration for the desktop launcher's native updater.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "UNLICENSED"
+}
