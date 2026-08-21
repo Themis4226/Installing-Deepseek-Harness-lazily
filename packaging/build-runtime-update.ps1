@@ -106,6 +106,10 @@ try {
     if (-not [System.IO.File]::Exists($sourceEntry)) {
         throw "Fixed DSH entry is missing: $sourceEntry"
     }
+    $launcherIntegrationInRuntime = Join-Path $sourceNodeModules '@themis4226\dsh-launcher-update-ui'
+    if (Test-Path -LiteralPath $launcherIntegrationInRuntime) {
+        throw 'Launcher integration must not be included in a DSH runtime asset.'
+    }
 
     $dshPackage = Get-Content -LiteralPath $sourcePackageJson -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($dshPackage.name -ne $packageName) {

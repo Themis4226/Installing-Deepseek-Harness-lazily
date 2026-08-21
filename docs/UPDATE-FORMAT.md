@@ -1,14 +1,15 @@
 # DSH runtime update format v1
 
-This document defines the update contract implemented by DSH Desktop Launcher 1.2.0 and later. It is intended for release
-maintainers and for users who want to audit what the launcher downloads.
+This document defines the update contract introduced by DSH Desktop Launcher 1.2.0 and retained by 1.3.0 and later.
+It is intended for release maintainers and for users who want to audit what the launcher downloads.
 
 ## What is updated
 
-The updater replaces only the versioned DSH runtime. It does not update the launcher executable, Node.js,
-Microsoft Edge WebView2 Runtime, or `%USERPROFILE%\.dsh`. A user coming from launcher 1.1.0 must install a complete
-package because 1.1.0 contains no updater. Launcher 1.2.0 users must likewise install the complete 1.2.1 package to
-receive the `--no-open` launcher fix because runtime-only updates cannot replace the EXE.
+The updater replaces only the versioned DSH runtime. It does not update the launcher executable, launcher-owned UI
+integration, Node.js, Microsoft Edge WebView2 Runtime, or `%USERPROFILE%\.dsh`. A user coming from launcher 1.1.0 must
+install a complete package because 1.1.0 contains no updater. Launcher 1.2.0 and 1.2.1 users must install the complete
+1.3.0 package to receive the General-settings update entry because runtime-only updates cannot replace the EXE or its
+adjacent integration files.
 
 Runtime-only is not the same as binary delta. Every update archive contains a complete runnable dependency tree for
 one pinned DSH version, so the transfer can still be large.
@@ -100,13 +101,26 @@ nodes, or entries outside `runtime/`. The v1 client also imposes compressed-size
 The updater must not modify `%USERPROFILE%\.dsh`. An already validated version directory may be reused, but a partial
 staging directory must never become active.
 
+## Launcher-owned settings integration
+
+Launcher 1.3.0 adds `launcher-integration/` to the complete desktop package. It registers one row through DSH's
+`settings.general.item` extension point and talks to the native launcher through a narrow WebView2 message bridge.
+The web side can request only an update check; download approval, asset selection, verification, activation, and
+rollback remain native operations. Messages are accepted only from the exact active `127.0.0.1` DSH origin.
+
+The integration package is resolved through an exact startup mapping for
+`@themis4226/dsh-launcher-update-ui` and its `package.json`. It must not be copied into bundled or managed DSH
+`node_modules`, and it must never be included in a `dsh-runtime-zip-v1` archive. If the launcher or this integration
+changes while the DSH runtime version remains the same, publish a new complete desktop package rather than replacing
+the immutable runtime asset.
+
 ## Launcher-only hotfixes
 
-The runtime feed cannot replace the launcher executable. For a launcher-only hotfix, publish and independently verify
-a new complete desktop package without rebuilding an unchanged runtime archive. After that release is public, the
-feed may raise `minimumLauncherVersion` and point `releaseNotesUrl` to the launcher hotfix while retaining the existing
-runtime version, asset URL, byte size, and SHA-256. Older update-capable launchers will then direct users to the full
-package instead of attempting a runtime replacement.
+The runtime feed cannot replace the launcher executable or launcher-owned UI integration. For either kind of change,
+publish and independently verify a new complete desktop package without rebuilding an unchanged runtime archive.
+After that release is public, the feed may raise `minimumLauncherVersion` and point `releaseNotesUrl` to the launcher
+release while retaining the existing runtime version, asset URL, byte size, and SHA-256. Older update-capable
+launchers will then direct users to the full package instead of attempting a runtime replacement.
 
 ## Safe publication order
 

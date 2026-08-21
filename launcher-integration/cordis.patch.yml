@@ -1,0 +1,3 @@
+- insert:
+    - id: launcher-update-ui
+      name: '@themis4226/dsh-launcher-update-ui'

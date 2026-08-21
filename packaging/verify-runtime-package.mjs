@@ -22,6 +22,7 @@ const ARCH = 'x64'
 const FORMAT = 'dsh-runtime-zip-v1'
 const FIXED_ENTRY = 'node_modules/@deepseek-ai/dsh/lib/bin.js'
 const PACKAGE_JSON = 'node_modules/@deepseek-ai/dsh/package.json'
+const FORBIDDEN_LAUNCHER_INTEGRATION = 'runtime/node_modules/@themis4226/dsh-launcher-update-ui'
 const MAX_FILES = 200_000
 const MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/
@@ -102,10 +103,14 @@ async function inspectArchive(archivePath, tarPath) {
 
   const names = []
   const caseInsensitiveNames = new Set()
+  const forbiddenIntegration = FORBIDDEN_LAUNCHER_INTEGRATION.toLocaleLowerCase('en-US')
   for (const rawName of rawNames) {
     const name = normalizeArchiveEntry(rawName)
     const folded = name.toLocaleLowerCase('en-US')
     if (caseInsensitiveNames.has(folded)) fail(`archive has a duplicate or case-colliding entry: ${name}`)
+    if (folded === forbiddenIntegration || folded.startsWith(`${forbiddenIntegration}/`)) {
+      fail('archive contains launcher UI integration inside the DSH runtime tree')
+    }
     caseInsensitiveNames.add(folded)
     names.push(name)
   }
