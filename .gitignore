@@ -1,0 +1,65 @@
+# Dependency trees and package-manager caches
+node_modules/
+.pnpm-store/
+.npm/
+
+# Local DSH and launcher state (may contain accounts, tokens, cookies, or chats)
+.dsh/
+data/
+runtimes/
+logs/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+.npmrc
+!.npmrc.example
+*.pem
+*.pfx
+*.p12
+*.key
+
+# Build products and release payloads belong in GitHub Releases
+artifacts/
+build/
+dist/
+out/
+release/
+staging/
+toolchains/
+update-backups/
+*.7z
+*.msi
+*.msix
+*.nupkg
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.exe
+*.dll
+*.pdb
+
+# IDE, compiler, test, and operating-system by-products
+.vs/
+.vscode/
+!.vscode/extensions.json
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+TestResults/
+coverage/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+~$*
