@@ -20,7 +20,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
-export const LAUNCHER_VERSION = '1.2.0'
+export const LAUNCHER_VERSION = '1.2.1'
 export const DEFAULT_MANIFEST_URL =
   'https://raw.githubusercontent.com/Themis4226/Installing-Deepseek-Harness-lazily/main/update.json'
 export const RUNTIME_PLATFORM = 'win32'

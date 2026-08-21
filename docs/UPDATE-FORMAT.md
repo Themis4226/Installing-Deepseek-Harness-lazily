@@ -1,13 +1,14 @@
 # DSH runtime update format v1
 
-This document defines the update contract implemented by DSH Desktop Launcher 1.2.0. It is intended for release
+This document defines the update contract implemented by DSH Desktop Launcher 1.2.0 and later. It is intended for release
 maintainers and for users who want to audit what the launcher downloads.
 
 ## What is updated
 
-The 1.2.0 updater replaces only the versioned DSH runtime. It does not update the launcher executable, Node.js,
-Microsoft Edge WebView2 Runtime, or `%USERPROFILE%\.dsh`. A user coming from launcher 1.1.0 must first install the
-complete 1.2.0 package because 1.1.0 contains no updater.
+The updater replaces only the versioned DSH runtime. It does not update the launcher executable, Node.js,
+Microsoft Edge WebView2 Runtime, or `%USERPROFILE%\.dsh`. A user coming from launcher 1.1.0 must install a complete
+package because 1.1.0 contains no updater. Launcher 1.2.0 users must likewise install the complete 1.2.1 package to
+receive the `--no-open` launcher fix because runtime-only updates cannot replace the EXE.
 
 Runtime-only is not the same as binary delta. Every update archive contains a complete runnable dependency tree for
 one pinned DSH version, so the transfer can still be large.
@@ -98,6 +99,14 @@ nodes, or entries outside `runtime/`. The v1 client also imposes compressed-size
 
 The updater must not modify `%USERPROFILE%\.dsh`. An already validated version directory may be reused, but a partial
 staging directory must never become active.
+
+## Launcher-only hotfixes
+
+The runtime feed cannot replace the launcher executable. For a launcher-only hotfix, publish and independently verify
+a new complete desktop package without rebuilding an unchanged runtime archive. After that release is public, the
+feed may raise `minimumLauncherVersion` and point `releaseNotesUrl` to the launcher hotfix while retaining the existing
+runtime version, asset URL, byte size, and SHA-256. Older update-capable launchers will then direct users to the full
+package instead of attempting a runtime replacement.
 
 ## Safe publication order
 
