@@ -29,6 +29,10 @@ before publication. The verifier checks safe archive paths and entry types,
 `runtime/runtime.json`, the fixed DSH entry, and the installed DSH package
 name/version.
 
+A launcher-only hotfix must not rebuild or republish an unchanged runtime. Publish and verify the new complete
+launcher package first, then update only the feed's launcher compatibility gate and release-notes link while retaining
+the existing runtime asset URL, byte size, and SHA-256.
+
 Run the small fixture tests with:
 
 ```powershell

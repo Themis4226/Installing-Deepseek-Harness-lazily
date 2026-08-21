@@ -7,9 +7,11 @@ repository's publisher.
 
 ## One-time launcher upgrade and runtime updates
 
-Launcher 1.1.0 has no built-in updater. Users must download the complete 1.2.0 Windows x64 package once. After that,
-the in-app updater downloads versioned runtime-only archives. These archives are complete runtime payloads, not
-binary delta patches, and do not include user configuration from `%USERPROFILE%\.dsh`.
+Launcher 1.1.0 has no built-in updater. Launcher 1.2.0 can update only the DSH runtime and cannot replace its own
+executable; users of both versions must download the complete 1.2.1 Windows x64 package to receive the launcher fix
+that suppresses the extra default-browser window. After that, the in-app updater downloads versioned runtime-only
+archives. These archives are complete runtime payloads, not binary delta patches, and do not include user
+configuration from `%USERPROFILE%\.dsh`.
 
 The updater accepts only the repository's configured HTTPS feed and release locations in production. It checks the
 declared byte size, SHA-256 digest, archive layout, runtime metadata, and pinned DSH package version before staging a

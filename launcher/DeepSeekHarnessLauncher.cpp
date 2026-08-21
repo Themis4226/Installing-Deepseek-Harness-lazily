@@ -33,7 +33,7 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"DeepSeekHarnessDesktopLauncherWindow";
 constexpr wchar_t kWindowTitle[] = L"DeepSeek Harness";
-constexpr wchar_t kLauncherVersion[] = L"1.2.0";
+constexpr wchar_t kLauncherVersion[] = L"1.2.1";
 constexpr wchar_t kMutexName[] = L"Local\\DeepSeekHarnessDesktopLauncher-4C0701B1-1DF1-4B93-8143-E86183102144";
 constexpr wchar_t kAppUserModelId[] = L"DeepSeekAI.DeepSeekHarness.DesktopLauncher";
 constexpr wchar_t kDshRelativePath[] = L"node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
@@ -1859,7 +1859,7 @@ bool StartDsh(std::wstring& errorText) {
 
     std::wstring commandLine = QuoteArgument(nodeExecutable) + L" --import=" +
         QuoteArgument(std::filesystem::path(bridgeUrl)) + L" " +
-        QuoteArgument(dshEntry) + L" web --host 127.0.0.1 --port 0";
+        QuoteArgument(dshEntry) + L" web --host 127.0.0.1 --port 0 --no-open";
     std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
     mutableCommand.push_back(L'\0');
 

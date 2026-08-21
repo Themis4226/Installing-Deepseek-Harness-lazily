@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.2.0',
+    [string]$Version = '1.2.1',
     [string]$DshVersion = '0.1.1-rc.2',
     [string]$RuntimeArchive,
     [string]$NodeExecutable = 'node.exe'
