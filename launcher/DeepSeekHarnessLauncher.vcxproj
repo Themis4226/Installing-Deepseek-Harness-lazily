@@ -51,7 +51,7 @@
       <ImportLibrary>$(IntDir)$(TargetName).lib</ImportLibrary>
       <ProgramDatabaseFile>$(IntDir)$(TargetName).pdb</ProgramDatabaseFile>
       <AdditionalLibraryDirectories>$(ProjectDir)vendor\webview2\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>WebView2LoaderStatic.lib;shell32.lib;shlwapi.lib;ole32.lib;user32.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>WebView2LoaderStatic.lib;shell32.lib;shlwapi.lib;ole32.lib;user32.lib;gdi32.lib;bcrypt.lib;version.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalManifestDependencies></AdditionalManifestDependencies>
     </Link>
     <Manifest>
@@ -60,9 +60,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="DeepSeekHarnessLauncher.cpp" />
+    <ClCompile Include="self_update.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
+    <ClInclude Include="self_update.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="DeepSeekHarnessLauncher.rc" />

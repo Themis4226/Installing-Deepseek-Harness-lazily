@@ -17,7 +17,6 @@ const allowedTopLevel = new Set([
   'THIRD_PARTY_NOTICES.md',
   'licenses',
   'RELEASE.json',
-  'launcher-integration',
 ])
 
 const topLevel = await readdir(stageRoot)
@@ -25,64 +24,17 @@ const unexpected = topLevel.filter((name) => !allowedTopLevel.has(name))
 if (unexpected.length > 0) {
   throw new Error(`Unexpected top-level entries: ${unexpected.join(', ')}`)
 }
-for (const forbidden of ['data', 'logs', 'launcher', 'build', '.git', '.npm-cache']) {
+for (const forbidden of ['data', 'logs', 'launcher', 'launcher-integration', 'build', '.git', '.npm-cache']) {
   if (topLevel.includes(forbidden)) throw new Error(`Forbidden top-level entry: ${forbidden}`)
 }
 
-const integrationFiles = [
-  'package.json',
-  path.join('lib', 'index.js'),
-  path.join('lib', 'client.js'),
-]
-async function listIntegrationEntries(directory, prefix = '') {
-  const result = []
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
-    result.push(entry.isDirectory() ? `${relative}/` : relative)
-    if (entry.isDirectory()) {
-      result.push(...await listIntegrationEntries(path.join(directory, entry.name), relative))
-    }
+for (const packageName of ['dsh-launcher-update-ui', 'dsh-official-update-check']) {
+  try {
+    await lstat(path.join(stageRoot, 'node_modules', '@themis4226', packageName))
+    throw new Error(`Launcher-only package must not be copied into the immutable runtime: ${packageName}`)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
   }
-  return result
-}
-
-const expectedIntegrationEntries = [
-  'cordis.patch.yml',
-  'dsh-launcher-update-ui/',
-  'dsh-launcher-update-ui/package.json',
-  'dsh-launcher-update-ui/lib/',
-  'dsh-launcher-update-ui/lib/client.js',
-  'dsh-launcher-update-ui/lib/index.js',
-].sort()
-const actualIntegrationEntries = (
-  await listIntegrationEntries(path.join(stageRoot, 'launcher-integration'))
-).sort()
-if (JSON.stringify(actualIntegrationEntries) !== JSON.stringify(expectedIntegrationEntries)) {
-  throw new Error(`Unexpected launcher integration entries: ${actualIntegrationEntries.join(', ')}`)
-}
-
-const integrationSource = path.join(stageRoot, 'launcher-integration', 'dsh-launcher-update-ui')
-const integrationInstalled = path.join(stageRoot, 'node_modules', '@themis4226', 'dsh-launcher-update-ui')
-const integrationManifest = JSON.parse(await readFile(path.join(integrationSource, 'package.json'), 'utf8'))
-if (integrationManifest.name !== '@themis4226/dsh-launcher-update-ui') {
-  throw new Error(`Unexpected launcher integration package: ${String(integrationManifest.name)}`)
-}
-for (const relative of integrationFiles) {
-  await readFile(path.join(integrationSource, relative))
-}
-let runtimeCopyPresent = true
-try {
-  await lstat(integrationInstalled)
-} catch (error) {
-  if (error?.code !== 'ENOENT') throw error
-  runtimeCopyPresent = false
-}
-if (runtimeCopyPresent) {
-  throw new Error('Launcher integration must not be copied into the immutable DSH runtime tree.')
-}
-const overlay = await readFile(path.join(stageRoot, 'launcher-integration', 'cordis.patch.yml'), 'utf8')
-if (!overlay.includes("name: '@themis4226/dsh-launcher-update-ui'")) {
-  throw new Error('Launcher integration overlay does not mount the expected package.')
 }
 
 const needles = process.argv.slice(3).filter(Boolean).flatMap((value) => [

@@ -46,10 +46,10 @@ window.__ModuleLoader__.load({
       check: '检查更新',
       'status.checking': '正在连接更新服务器…',
       'status.current': '当前已经是最新版本',
-      'status.available': '发现运行时更新，请在确认窗口中继续',
+      'status.available': '发现可用更新，请在确认窗口中继续',
       'status.launcher-required': '需要安装新版桌面启动器',
       'status.downloading': '正在下载并验证更新…',
-      'status.restarting': '更新验证完成，DSH 即将重启…',
+      'status.restarting': '更新验证完成，应用即将重启…',
       'status.unavailable': '当前状态暂时无法检查更新',
       'status.error': '检查失败，请稍后重试',
     }
@@ -60,10 +60,10 @@ window.__ModuleLoader__.load({
       check: 'Check for updates',
       'status.checking': 'Connecting to the update service…',
       'status.current': 'You are up to date',
-      'status.available': 'A runtime update is available; continue in the confirmation dialog',
+      'status.available': 'An update is available; continue in the confirmation dialog',
       'status.launcher-required': 'A newer desktop launcher is required',
       'status.downloading': 'Downloading and verifying the update…',
-      'status.restarting': 'Update verified; DSH is restarting…',
+      'status.restarting': 'Update verified; the app is restarting…',
       'status.unavailable': 'Updates cannot be checked in the current state',
       'status.error': 'Update check failed; try again later',
     }
@@ -72,6 +72,17 @@ window.__ModuleLoader__.load({
       const bridge = globalThis.chrome?.webview
       if (typeof bridge?.postMessage !== 'function' || typeof bridge?.addEventListener !== 'function') return undefined
       return bridge
+    }
+
+    function sendHello() {
+      const bridge = webviewBridge()
+      if (bridge === undefined) return false
+      try {
+        bridge.postMessage(MESSAGE_HELLO)
+        return true
+      } catch {
+        return false
+      }
     }
 
     function validVersion(value) {
@@ -171,6 +182,8 @@ window.__ModuleLoader__.load({
 
     const inject = ['slots', 'locale']
     function apply(ctx) {
+      // The launcher health check must not depend on opening the Settings panel.
+      sendHello()
       ctx.effect(
         () => ctx.locale.register('settings.launcherUpdate', { zh, en }),
         'launcher-update-ui: dictionaries',
@@ -185,6 +198,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply
     exports.inject = inject
+    exports.sendHello = sendHello
     return module.exports
   },
 })

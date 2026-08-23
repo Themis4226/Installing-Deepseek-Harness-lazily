@@ -3,10 +3,14 @@
 
 IDI_APP_ICON ICON "deepseek-app-rounded.ico"
 IDR_UPDATER_SCRIPT RCDATA "updater.mjs"
+IDR_LAUNCHER_INTEGRATION_PATCH RCDATA "..\\launcher-integration\\cordis.patch.yml"
+IDR_LAUNCHER_INTEGRATION_PACKAGE RCDATA "..\\launcher-integration\\dsh-launcher-update-ui\\package.json"
+IDR_LAUNCHER_INTEGRATION_INDEX RCDATA "..\\launcher-integration\\dsh-launcher-update-ui\\lib\\index.js"
+IDR_LAUNCHER_INTEGRATION_CLIENT RCDATA "..\\launcher-integration\\dsh-launcher-update-ui\\lib\\client.js"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,3,0,0
- PRODUCTVERSION 1,3,0,0
+ FILEVERSION 1,4,0,0
+ PRODUCTVERSION 1,4,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS VS_FF_DEBUG
@@ -23,12 +27,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Local desktop launcher\0"
             VALUE "FileDescription", "Unofficial desktop launcher for DeepSeek Harness\0"
-            VALUE "FileVersion", "1.3.0.0\0"
+            VALUE "FileVersion", "1.4.0.0\0"
             VALUE "InternalName", "DeepSeekHarnessLauncher\0"
             VALUE "LegalCopyright", "DeepSeek mobile app icon copyright Hangzhou DeepSeek Artificial Intelligence Co., Ltd.\0"
             VALUE "OriginalFilename", "DeepSeek Harness.exe\0"
             VALUE "ProductName", "DeepSeek Harness Desktop Launcher\0"
-            VALUE "ProductVersion", "1.3.0.0\0"
+            VALUE "ProductVersion", "1.4.0.0\0"
         END
     END
     BLOCK "VarFileInfo"

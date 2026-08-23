@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "channel": "preview",
+  "publishedAt": "2026-08-24T00:00:00Z",
+  "launcher": {
+    "version": "1.4.0",
+    "platform": "win32",
+    "arch": "x64",
+    "format": "portable-exe-v1",
+    "asset": {
+      "url": "https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases/download/v1.4.0/DeepSeek-Harness-1.4.0-win-x64.exe",
+      "size": 1234567,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "releaseNotesUrl": "https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases/tag/v1.4.0"
+}
