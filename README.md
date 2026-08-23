@@ -29,6 +29,13 @@
 `launcher-update.json` 启动器清单。它可以只更新 DSH 运行时、只更新启动器，或将相互依赖的新版 EXE
 与 runtime 作为一组更新。旧 `update.json` 不会加入启动器字段，因此 1.3.0 的严格清单解析不会被破坏。
 
+如果 `launcher-update.json` 明确返回 HTTP 404，1.4.0 会把它解释为“启动器更新源尚未发布”：原
+“软件更新”入口仍会严格读取并检查 `update.json`，而不会把启动器源未启用误报为整体更新失败。若
+runtime 已是最新版本，检查结果为 `launcher-feed-unavailable`。除这一精确情形外，其他 HTTP 状态、
+网络失败、清单格式错误及资源大小、SHA-256 或结构校验错误仍会失败关闭，不会切换任何版本。
+`minimumLauncherVersion` 兼容门槛也不会被绕过；需要更高版本启动器但当前没有合格候选时，更新器会
+报告发布内容不完整并保持现状。
+
 所有候选资源都会先下载到独立 staging 目录并分别校验。runtime ZIP需要通过大小、SHA-256、目录结构
 和固定 DSH入口检查；EXE需要通过大小、SHA-256、PE32+ AMD64结构和版本信息检查。runtime更新不是
 二进制差分（delta）：依赖有变化时，下载量仍可能接近完整的 `node_modules`。

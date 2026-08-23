@@ -57,6 +57,7 @@ export class UpdaterError extends Error {
     super(message, options)
     this.name = 'UpdaterError'
     this.code = code
+    if (Number.isInteger(options?.httpStatus)) this.httpStatus = options.httpStatus
   }
 }
 
@@ -390,7 +391,11 @@ function requestStream(url, { testMode, kind, redirects = 0 }) {
         }
         if (status !== 200) {
           response.resume()
-          reject(new UpdaterError('HTTP_ERROR', `${kind} request returned HTTP ${status}`))
+          reject(
+            new UpdaterError('HTTP_ERROR', `${kind} request returned HTTP ${status}`, {
+              httpStatus: status,
+            }),
+          )
           return
         }
         resolve(response)
@@ -445,11 +450,8 @@ export async function loadLauncherManifest(manifestUrl, { testMode = false } = {
   validateFetchUrl(url, { testMode, kind: 'launcher-manifest' })
   let bytes
   try {
-    bytes = await readLimited(
-      await requestStream(url, { testMode, kind: 'launcher-manifest' }),
-      MAX_MANIFEST_BYTES,
-      'launcher manifest',
-    )
+    const stream = await requestStream(url, { testMode, kind: 'launcher-manifest' })
+    bytes = await readLimited(stream, MAX_MANIFEST_BYTES, 'launcher manifest')
   } catch (error) {
     if (error instanceof UpdaterError) throw error
     fail('MANIFEST_DOWNLOAD_FAILED', `unable to read launcher update manifest: ${error.message}`, { cause: error })
@@ -504,10 +506,21 @@ export async function checkForBundle({
   parseSemver(currentLauncherVersion, 'current launcher version')
   const [runtimeManifest, launcherManifest] = await Promise.all([
     loadManifest(manifestUrl, { testMode }),
-    loadLauncherManifest(launcherManifestUrl, { testMode }),
+    loadLauncherManifest(launcherManifestUrl, { testMode }).catch((error) => {
+      if (
+        error instanceof UpdaterError &&
+        error.code === 'HTTP_ERROR' &&
+        error.httpStatus === 404
+      ) {
+        return null
+      }
+      throw error
+    }),
   ])
+  const launcherManifestAvailable = launcherManifest !== null
   const runtimeUpdateAvailable = compareSemver(runtimeManifest.runtime.version, currentVersion) > 0
   const launcherUpdateAvailable =
+    launcherManifestAvailable &&
     compareSemver(launcherManifest.launcher.version, currentLauncherVersion) > 0
   const effectiveLauncherVersion = launcherUpdateAvailable
     ? launcherManifest.launcher.version
@@ -523,6 +536,8 @@ export async function checkForBundle({
     status = 'launcher-update-available'
   } else if (runtimeUpdateAvailable) {
     status = 'update-available'
+  } else if (!launcherManifestAvailable) {
+    status = 'launcher-feed-unavailable'
   }
 
   return {
@@ -535,9 +550,12 @@ export async function checkForBundle({
     runtimeSize: runtimeManifest.runtime.asset.size,
     runtimeSha256: runtimeManifest.runtime.asset.sha256,
     minimumLauncherVersion: runtimeManifest.minimumLauncherVersion,
-    launcherVersion: launcherManifest.launcher.version,
-    launcherSize: launcherManifest.launcher.asset.size,
-    launcherSha256: launcherManifest.launcher.asset.sha256,
+    launcherManifestAvailable,
+    launcherVersion: launcherManifestAvailable
+      ? launcherManifest.launcher.version
+      : currentLauncherVersion,
+    launcherSize: launcherManifest?.launcher.asset.size,
+    launcherSha256: launcherManifest?.launcher.asset.sha256,
     releaseNotesUrl: launcherUpdateAvailable
       ? launcherManifest.releaseNotesUrl
       : runtimeManifest.releaseNotesUrl,
@@ -1039,7 +1057,11 @@ export async function prepareBundle({
     currentLauncherVersion,
     testMode,
   })
-  if (checked.status === 'up-to-date' || checked.status === 'release-incomplete') {
+  if (
+    checked.status === 'up-to-date' ||
+    checked.status === 'launcher-feed-unavailable' ||
+    checked.status === 'release-incomplete'
+  ) {
     return checked
   }
 
@@ -1182,6 +1204,7 @@ function publicResult(command, result) {
     launcherSize: result.launcherSize,
     launcherSha256: result.launcherSha256,
     launcherUpdateAvailable: result.launcherUpdateAvailable,
+    launcherManifestAvailable: result.launcherManifestAvailable,
     files: result.files,
   }
 }

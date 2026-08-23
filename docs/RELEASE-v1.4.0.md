@@ -19,6 +19,10 @@ GitHub 自动生成的 `Source code (zip)` 不是可运行安装包。Lite 包�
 - 更新 helper 只管理本次启动器记录的进程，不按名称结束其他 `node.exe` 程序。
 - helper 被强制结束或电脑意外中断后，下次启动会校验事务与回滚材料，再安全提交或恢复旧版。
 - “软件更新”UI 已嵌入 EXE，更新启动器时会同步更新，不再依赖安装目录中的旁置 UI 文件。
+- 修复启动器更新源尚未发布时的检查失败：`launcher-update.json` 明确返回 HTTP 404 时，原“软件更新”
+  仍会严格检查 DSH runtime；runtime 已是最新版时显示 `launcher-feed-unavailable` 状态。
+- 上述过渡仅适用于启动器清单的精确 404；其他 HTTP、网络、格式、大小、SHA-256 或结构错误仍会失败
+  关闭，`minimumLauncherVersion` 门槛继续生效，不会安装与当前启动器不兼容的 runtime。
 - 初始官方 DSH runtime 仍固定为 `@deepseek-ai/dsh@0.1.1-rc.2`，本版没有重打相同 runtime 资源。
 
 仓库中的“官方更新检查”是发布者本机使用的只读维护者插件，用于发现 DeepSeek 官方 npm 新版本并先做

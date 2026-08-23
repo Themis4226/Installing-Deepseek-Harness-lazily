@@ -34,6 +34,12 @@ EXE 创建快捷方式。
 两个候选都会先进入独立 staging目录并分别校验大小和 SHA-256；runtime还要验证压缩包结构、元数据和
 固定入口，EXE还要验证 PE32+ AMD64结构与版本信息。
 
+如果启动器清单 `launcher-update.json` 明确返回 HTTP 404，表示启动器更新源尚未发布；原“检查更新”
+仍会严格检查 DSH runtime，runtime 已是最新版时显示 `launcher-feed-unavailable`。只有这一精确情形
+允许继续检查 runtime；其他 HTTP、网络、格式、大小、SHA-256 或结构错误仍会失败关闭。
+`minimumLauncherVersion` 仍是强制兼容门槛：runtime 要求更高版本启动器而更新源没有合格候选时，
+更新器不会切换任何版本。
+
 替换 EXE时，旧启动器会停止自己管理的 DSH进程并启动隐藏的原生更新助手。助手备份旧 runtime状态、
 原子替换同目录 EXE，并等待新版 DSH页面和可信 WebView消息桥完成健康确认。超时、新版提前退出或
 runtime失败时会恢复旧 EXE和旧 runtime状态；其他 Node.js程序不会按名称被结束。
