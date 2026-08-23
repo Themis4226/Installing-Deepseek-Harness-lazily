@@ -1228,6 +1228,9 @@ bool NormalizeUpdaterProtocol(std::string& output) {
     return true;
 }
 
+bool ExtractJsonString(const std::string& text, const char* name, std::string& value);
+std::wstring FriendlyUpdaterFailure(const std::string& output, DWORD exitCode);
+
 bool RunUpdaterProcess(
     UpdateOperation operation,
     const std::wstring& currentVersion,
@@ -1373,10 +1376,7 @@ bool RunUpdaterProcess(
     CloseHandle(updateJob);
     if (waitResult != WAIT_OBJECT_0 || result.exitCode != 0) {
         if (result.errorText.empty()) {
-            result.errorText = L"更新器失败（代码 " + std::to_wstring(result.exitCode) + L"）。";
-            if (!output.empty()) {
-                result.errorText += L"\n" + Utf8ToWide(output);
-            }
+            result.errorText = FriendlyUpdaterFailure(output, result.exitCode);
         }
         return false;
     }
@@ -1465,6 +1465,33 @@ bool ExtractJsonBoolean(const std::string& text, const char* name, bool& value) 
         return true;
     }
     return false;
+}
+
+std::wstring FriendlyUpdaterFailure(const std::string& output, DWORD exitCode) {
+    std::string normalized = output;
+    std::string code;
+    if (NormalizeUpdaterProtocol(normalized) && ExtractJsonString(normalized, "code", code)) {
+        if (code == "HTTP_ERROR" || code == "HTTP_TIMEOUT" || code == "TOO_MANY_REDIRECTS" ||
+            code == "MANIFEST_DOWNLOAD_FAILED" || code == "ASSET_DOWNLOAD_FAILED") {
+            return L"无法读取公开更新源或下载更新文件。请检查网络后重试；未切换任何版本。";
+        }
+        if (code == "MANIFEST_JSON_INVALID" || code == "SCHEMA_INVALID" || code == "URL_NOT_ALLOWED" ||
+            code == "PLATFORM_MISMATCH" || code == "ARCH_MISMATCH" || code == "FORMAT_MISMATCH" ||
+            code == "VERSION_INVALID") {
+            return L"公开更新清单无效或不适用于这台电脑。为保证兼容性，更新已停止。";
+        }
+        if (code == "DOWNLOAD_TOO_LARGE" || code == "HASH_MISMATCH" || code == "SIZE_MISMATCH" ||
+            code == "ARCHIVE_COMMAND_FAILED" || code == "ARCHIVE_EMPTY" || code == "ARCHIVE_ENTRY_INVALID" ||
+            code == "ARCHIVE_LINK_NOT_ALLOWED" || code == "ARCHIVE_TOO_MANY_FILES" ||
+            code == "LAUNCHER_INVALID" || code == "RUNTIME_ENTRY_INVALID" || code == "RUNTIME_INVALID" ||
+            code == "RUNTIME_LINK_NOT_ALLOWED" || code == "RUNTIME_TOO_LARGE") {
+            return L"更新文件未通过完整性或结构校验，已停止更新；当前版本没有被替换。";
+        }
+        if (code == "CLI_INVALID" || code == "DATA_ROOT_INVALID" || code == "PATH_INVALID") {
+            return L"本机更新器配置无效，未进行任何更改。";
+        }
+    }
+    return L"更新器失败（代码 " + std::to_wstring(exitCode) + L"），未切换任何版本。";
 }
 
 DWORD WINAPI UpdateWorkerThread(void* parameter) {
@@ -1578,6 +1605,13 @@ void HandleUpdateWorkerResult(UpdateWorkerResult* result) {
             SetUpdateUiPhase(UpdateUiPhase::Current);
             if (!result->silentWhenCurrent) {
                 ShowUpdateMessage(L"当前 DSH 运行时和桌面启动器已经是最新版本。", MB_OK | MB_ICONINFORMATION);
+            }
+        } else if (status == "launcher-feed-unavailable") {
+            SetUpdateUiPhase(UpdateUiPhase::Unavailable);
+            if (!result->silentWhenCurrent) {
+                ShowUpdateMessage(
+                    L"当前 DSH 运行时已经是最新版本。\n桌面启动器更新源尚未启用，因此暂时无法检查启动器更新。",
+                    MB_OK | MB_ICONINFORMATION);
             }
         } else if (status == "update-available" &&
             ExtractJsonString(result->output, "runtimeVersion", versionText)) {

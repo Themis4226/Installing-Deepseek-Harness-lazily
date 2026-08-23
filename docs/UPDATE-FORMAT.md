@@ -26,6 +26,13 @@ The production client reads two independent feeds:
 Launcher fields must never be added to that file. The second feed is consumed only by launchers that implement the
 1.4.0 self-update protocol.
 
+An exact HTTP 404 response for `launcher-update.json` means that the launcher feed has not been published yet. A
+1.4.0 client continues to fetch and strictly validate `update.json`; when that runtime is already current, the check
+result is `launcher-feed-unavailable`. This exception applies only to the launcher's manifest request and only to
+HTTP 404. Any other HTTP status, network failure, redirect or manifest-format error remains fail-closed. Runtime
+manifest failures are always fail-closed, and all downloaded assets still require their normal size, SHA-256,
+structure, platform, and version checks before activation.
+
 Production assets must be immutable HTTPS GitHub Release downloads from this repository. Local files and localhost
 URLs are accepted only when the launcher is explicitly placed in test mode; test overrides must never be present in
 a public release shortcut or package.
@@ -186,7 +193,8 @@ explicit integration allowlist and excludes this bundle.
 `runtime.minimumLauncherVersion` remains the compatibility gate. A 1.4.0-or-newer client may satisfy it with the
 validated candidate declared by `launcher-update.json` and install both candidates as one transaction. If the
 launcher feed does not provide a sufficiently new candidate, the client reports an incomplete release and changes
-nothing.
+nothing. The exact-404 transition behavior above does not weaken this gate: a runtime requiring a launcher newer than
+the installed version cannot be activated while the launcher feed is unavailable.
 
 Launcher 1.3.0 and earlier cannot run the full self-replacement helper protocol. They must manually install the first
 1.4.0 full package once. Keeping the runtime feed schema unchanged lets those clients continue to parse it and follow

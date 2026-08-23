@@ -134,3 +134,11 @@ test('native integration keeps the runtime immutable and exposes no top Help men
   assert.doesNotMatch(source, /SetEnvironmentVariableW/)
   assert.doesNotMatch(source, /g_mainMenu|kCheckUpdateMenuId|L"帮助"/)
 })
+
+test('native updater reports an unpublished launcher feed without exposing raw updater JSON', async () => {
+  const source = await readFile(launcherSourcePath, 'utf8')
+  assert.match(source, /status == "launcher-feed-unavailable"/)
+  assert.match(source, /桌面启动器更新源尚未启用/)
+  assert.match(source, /FriendlyUpdaterFailure/)
+  assert.doesNotMatch(source, /result\.errorText \+= L"\\n" \+ Utf8ToWide\(output\)/)
+})

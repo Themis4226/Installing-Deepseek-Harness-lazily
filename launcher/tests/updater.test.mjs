@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
+import { createServer } from 'node:http'
 import {
   access,
   mkdtemp,
@@ -23,6 +24,7 @@ import {
   checkForUpdate,
   compareSemver,
   parseCliArguments,
+  prepareBundle,
   prepareLauncher,
   prepareRuntime,
   validateArchiveEntryNames,
@@ -41,6 +43,25 @@ const REMOTE_VERSION = '0.1.1-rc.2'
 const CURRENT_VERSION = '0.1.1-rc.1'
 const REMOTE_LAUNCHER_VERSION = '1.4.1'
 const CURRENT_LAUNCHER_VERSION = '1.4.0'
+
+async function serveHttpStatus(t, status, body = '') {
+  const server = createServer((_request, response) => {
+    response.writeHead(status, { 'Content-Type': 'application/json' })
+    response.end(body)
+  })
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  t.after(
+    () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      }),
+  )
+  const address = server.address()
+  return `http://127.0.0.1:${address.port}/launcher-update.json`
+}
 
 const crcTable = new Uint32Array(256)
 for (let index = 0; index < 256; index += 1) {
@@ -493,6 +514,131 @@ test('bundle check distinguishes all four update states', async (t) => {
       `${scenario.status}: launcher availability`,
     )
   }
+})
+
+test('bundle check treats only launcher manifest HTTP 404 as an unpublished feed', async (t) => {
+  const fixture = await makeFixture(t)
+  const launcherManifestUrl = await serveHttpStatus(t, 404)
+  const cases = [
+    {
+      status: 'launcher-feed-unavailable',
+      currentVersion: REMOTE_VERSION,
+      minimumLauncherVersion: '1.2.0',
+    },
+    {
+      status: 'update-available',
+      currentVersion: CURRENT_VERSION,
+      minimumLauncherVersion: CURRENT_LAUNCHER_VERSION,
+    },
+    {
+      status: 'release-incomplete',
+      currentVersion: CURRENT_VERSION,
+      minimumLauncherVersion: '1.5.0',
+    },
+  ]
+
+  for (const scenario of cases) {
+    fixture.manifest.minimumLauncherVersion = scenario.minimumLauncherVersion
+    await writeFile(fixture.manifestPath, JSON.stringify(fixture.manifest), 'utf8')
+    const checked = await checkForBundle({
+      manifestUrl: fixture.manifestUrl,
+      launcherManifestUrl,
+      currentVersion: scenario.currentVersion,
+      currentLauncherVersion: CURRENT_LAUNCHER_VERSION,
+      testMode: true,
+    })
+    assert.equal(checked.status, scenario.status)
+    assert.equal(checked.launcherManifestAvailable, false)
+    assert.equal(checked.launcherUpdateAvailable, false)
+    assert.equal(checked.launcherVersion, CURRENT_LAUNCHER_VERSION)
+  }
+})
+
+test('bundle check keeps non-404 launcher feed failures strict', async (t) => {
+  const fixture = await makeFixture(t)
+  const launcherManifestUrl = await serveHttpStatus(t, 500)
+  await assert.rejects(
+    checkForBundle({
+      manifestUrl: fixture.manifestUrl,
+      launcherManifestUrl,
+      currentVersion: CURRENT_VERSION,
+      currentLauncherVersion: CURRENT_LAUNCHER_VERSION,
+      testMode: true,
+    }),
+    (error) =>
+      error instanceof UpdaterError &&
+      error.code === 'HTTP_ERROR' &&
+      error.httpStatus === 500,
+  )
+})
+
+test('bundle check keeps a runtime manifest HTTP 404 strict', async (t) => {
+  const fixture = await makeFixture(t)
+  const manifestUrl = await serveHttpStatus(t, 404)
+  await assert.rejects(
+    checkForBundle({
+      manifestUrl,
+      launcherManifestUrl: fixture.launcherManifestUrl,
+      currentVersion: CURRENT_VERSION,
+      currentLauncherVersion: CURRENT_LAUNCHER_VERSION,
+      testMode: true,
+    }),
+    (error) =>
+      error instanceof UpdaterError &&
+      error.code === 'HTTP_ERROR' &&
+      error.httpStatus === 404,
+  )
+})
+
+test('prepare-bundle can prepare a compatible runtime while the launcher feed is unpublished', async (t) => {
+  const fixture = await makeFixture(t)
+  const launcherManifestUrl = await serveHttpStatus(t, 404)
+  const prepared = await prepareBundle({
+    manifestUrl: fixture.manifestUrl,
+    launcherManifestUrl,
+    dataRoot: fixture.dataRoot,
+    currentVersion: CURRENT_VERSION,
+    currentLauncherVersion: CURRENT_LAUNCHER_VERSION,
+    testMode: true,
+    tarPath: TAR_PATH,
+  })
+  assert.equal(prepared.status, 'prepared')
+  assert.equal(prepared.version, REMOTE_VERSION)
+  assert.equal(await exists(path.join(fixture.dataRoot, 'runtimes', REMOTE_VERSION)), true)
+  assert.equal(await exists(path.join(fixture.dataRoot, 'updates', 'launchers')), false)
+})
+
+test('check-bundle CLI reports an unpublished launcher feed as one successful JSON line', async (t) => {
+  const fixture = await makeFixture(t)
+  const launcherManifestUrl = await serveHttpStatus(t, 404)
+  const { stdout, stderr } = await execFileAsync(
+    process.execPath,
+    [
+      UPDATER_PATH,
+      'check-bundle',
+      '--manifest',
+      fixture.manifestUrl,
+      '--launcher-manifest',
+      launcherManifestUrl,
+      '--data-root',
+      fixture.dataRoot,
+      '--current-version',
+      REMOTE_VERSION,
+      '--current-launcher-version',
+      CURRENT_LAUNCHER_VERSION,
+      '--test-mode',
+    ],
+    { encoding: 'utf8', windowsHide: true },
+  )
+  assert.equal(stderr, '')
+  const lines = stdout.trimEnd().split(/\r?\n/)
+  assert.equal(lines.length, 1)
+  const result = JSON.parse(lines[0])
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'check-bundle')
+  assert.equal(result.status, 'launcher-feed-unavailable')
+  assert.equal(result.launcherManifestAvailable, false)
+  assert.equal(result.launcherUpdateAvailable, false)
 })
 
 test('check and prepare install a valid immutable runtime without active state', async (t) => {
