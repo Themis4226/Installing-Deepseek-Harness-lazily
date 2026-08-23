@@ -25,6 +25,7 @@
 
 #include "WebView2.h"
 #include "resource.h"
+#include "self_update.h"
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -33,7 +34,7 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"DeepSeekHarnessDesktopLauncherWindow";
 constexpr wchar_t kWindowTitle[] = L"DeepSeek Harness";
-constexpr wchar_t kLauncherVersion[] = L"1.3.0";
+constexpr wchar_t kLauncherVersion[] = L"1.4.0";
 constexpr wchar_t kMutexName[] = L"Local\\DeepSeekHarnessDesktopLauncher-4C0701B1-1DF1-4B93-8143-E86183102144";
 constexpr wchar_t kAppUserModelId[] = L"DeepSeekAI.DeepSeekHarness.DesktopLauncher";
 constexpr wchar_t kDshRelativePath[] = L"node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
@@ -46,17 +47,18 @@ constexpr wchar_t kLogRelativePath[] = L"logs\\dsh.log";
 constexpr wchar_t kUpdaterRelativePath[] = L"data\\dsh-runtime-updater.mjs";
 constexpr wchar_t kRuntimeStateRelativePath[] = L"updates\\state.txt";
 constexpr wchar_t kRuntimeVersionsRelativePath[] = L"runtimes";
-constexpr wchar_t kLauncherIntegrationPatchRelativePath[] = L"launcher-integration\\cordis.patch.yml";
-constexpr wchar_t kLauncherIntegrationPackageRelativePath[] =
-    L"launcher-integration\\dsh-launcher-update-ui";
+constexpr wchar_t kLauncherIntegrationDataRelativePath[] = L"data\\launcher-integration\\1.4.0";
 constexpr wchar_t kLauncherIntegrationRootEnvironmentVariable[] =
     L"DSH_LAUNCHER_INTEGRATION_ROOT";
 constexpr wchar_t kUpdateManifestUrl[] =
     L"https://raw.githubusercontent.com/Themis4226/Installing-Deepseek-Harness-lazily/main/update.json";
+constexpr wchar_t kLauncherUpdateManifestUrl[] =
+    L"https://raw.githubusercontent.com/Themis4226/Installing-Deepseek-Harness-lazily/main/launcher-update.json";
 constexpr wchar_t kReleasePageUrl[] =
     L"https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases";
 constexpr wchar_t kUpdateTestModeEnvironmentVariable[] = L"DSH_LAUNCHER_UPDATE_TEST_MODE";
 constexpr wchar_t kUpdateManifestEnvironmentVariable[] = L"DSH_LAUNCHER_UPDATE_MANIFEST";
+constexpr wchar_t kLauncherUpdateManifestEnvironmentVariable[] = L"DSH_LAUNCHER_UPDATE_LAUNCHER_MANIFEST";
 constexpr char kShutdownToken[] = "__DSH_LAUNCHER_SHUTDOWN__\n";
 constexpr wchar_t kWebMessageHello[] = L"dsh-launcher:v1:hello";
 constexpr wchar_t kWebMessageCheckUpdate[] = L"dsh-launcher:v1:update.check";
@@ -223,6 +225,11 @@ std::wstring g_healthRuntimeId;
 std::atomic_bool g_shutdownStarted{false};
 bool g_autoUpdateScheduled = false;
 bool g_runtimeRollbackRestarted = false;
+bool g_healthNavigationPassed = false;
+bool g_trustedBridgeHelloReceived = false;
+bool g_selfUpdateHealthMode = false;
+bool g_selfUpdateHealthSignalled = false;
+dsh::self_update::StartupCommand g_selfUpdateCommand;
 
 ComPtr<ICoreWebView2Environment> g_webViewEnvironment;
 ComPtr<ICoreWebView2Controller> g_webViewController;
@@ -239,6 +246,8 @@ void HandleUpdateWorkerResult(UpdateWorkerResult* result);
 void SetState(UiState state, std::wstring errorText = {});
 void StopDsh(bool graceful);
 void RetryStart();
+void BeginShutdown();
+void MaybeSignalSelfUpdateHealthy();
 
 std::wstring FormatSystemError(DWORD error) {
     wchar_t* message = nullptr;
@@ -337,7 +346,7 @@ bool IsSafeRuntimeId(const std::wstring& value) {
         return (character >= L'a' && character <= L'z') ||
             (character >= L'A' && character <= L'Z') ||
             (character >= L'0' && character <= L'9') ||
-            character == L'.' || character == L'-' || character == L'_';
+            character == L'.' || character == L'+' || character == L'-' || character == L'_';
     });
 }
 
@@ -719,33 +728,63 @@ void SetUpdateUiPhase(UpdateUiPhase phase) {
     PostUpdateSnapshot();
 }
 
+void MaybeSignalSelfUpdateHealthy() {
+    if (!g_selfUpdateHealthMode || g_selfUpdateHealthSignalled ||
+        !g_healthNavigationPassed || !g_trustedBridgeHelloReceived) {
+        return;
+    }
+    if (!g_selfUpdateCommand.runtimeVersion.empty() &&
+        g_activeRuntimeId != g_selfUpdateCommand.runtimeVersion) {
+        return;
+    }
+    std::wstring errorText;
+    if (dsh::self_update::SignalUpdateHealthy(g_selfUpdateCommand, g_dataRoot, errorText)) {
+        g_selfUpdateHealthSignalled = true;
+        return;
+    }
+    SetState(UiState::Error, L"新版启动器健康确认失败，即将自动恢复旧版。\n" + errorText);
+    PostMessageW(g_window, WM_CLOSE, 0, 0);
+}
+
 bool PrepareLauncherIntegrationPatch(
     std::filesystem::path& patchPath,
     std::filesystem::path& integrationRoot,
     std::wstring& errorText) {
     patchPath.clear();
     integrationRoot.clear();
-    const std::filesystem::path sourcePackage = g_appRoot / kLauncherIntegrationPackageRelativePath;
-    const std::filesystem::path candidatePatch = g_appRoot / kLauncherIntegrationPatchRelativePath;
-    if (!FileExists(candidatePatch)) {
-        errorText = L"桌面启动器设置集成文件不完整。";
-        return false;
-    }
+    const std::filesystem::path materializedRoot = g_dataRoot / kLauncherIntegrationDataRelativePath;
+    integrationRoot = materializedRoot / L"dsh-launcher-update-ui";
+    patchPath = materializedRoot / L"cordis.patch.yml";
 
-    constexpr const wchar_t* packageFiles[] = {
-        L"package.json",
-        L"lib\\index.js",
-        L"lib\\client.js",
+    struct EmbeddedFile {
+        int resourceId;
+        std::filesystem::path destination;
     };
-    for (const wchar_t* relativePath : packageFiles) {
-        if (!FileExists(sourcePackage / relativePath)) {
-            errorText = L"桌面启动器设置集成文件不完整。";
+    const EmbeddedFile files[] = {
+        {IDR_LAUNCHER_INTEGRATION_PATCH, patchPath},
+        {IDR_LAUNCHER_INTEGRATION_PACKAGE, integrationRoot / L"package.json"},
+        {IDR_LAUNCHER_INTEGRATION_INDEX, integrationRoot / L"lib\\index.js"},
+        {IDR_LAUNCHER_INTEGRATION_CLIENT, integrationRoot / L"lib\\client.js"},
+    };
+    for (const auto& file : files) {
+        HRSRC resource = FindResourceW(g_instance, MAKEINTRESOURCEW(file.resourceId), RT_RCDATA);
+        HGLOBAL loaded = resource == nullptr ? nullptr : LoadResource(g_instance, resource);
+        const DWORD size = resource == nullptr ? 0 : SizeofResource(g_instance, resource);
+        const void* bytes = loaded == nullptr ? nullptr : LockResource(loaded);
+        if (bytes == nullptr || size == 0) {
+            errorText = L"启动器缺少内置设置集成资源。";
+            return false;
+        }
+        const std::string embedded(static_cast<const char*>(bytes), static_cast<size_t>(size));
+        std::string existing;
+        if (ReadSmallTextFile(file.destination, existing) && existing == embedded) {
+            continue;
+        }
+        if (!AtomicWriteTextFile(file.destination, embedded, errorText)) {
+            errorText = L"无法准备内置设置集成文件。\n" + errorText;
             return false;
         }
     }
-
-    patchPath = candidatePatch;
-    integrationRoot = sourcePackage;
     return true;
 }
 
@@ -1126,22 +1165,29 @@ bool WriteUpdaterScript(std::filesystem::path& scriptPath, std::wstring& errorTe
         errorText);
 }
 
-bool ResolveUpdateManifest(std::wstring& manifest, bool& testMode, std::wstring& errorText) {
+bool ResolveUpdateManifests(
+    std::wstring& runtimeManifest,
+    std::wstring& launcherManifest,
+    bool& testMode,
+    std::wstring& errorText) {
     testMode = ReadEnvironmentValue(kUpdateTestModeEnvironmentVariable) == L"1";
     if (!testMode) {
-        manifest = kUpdateManifestUrl;
+        runtimeManifest = kUpdateManifestUrl;
+        launcherManifest = kLauncherUpdateManifestUrl;
         return true;
     }
-    manifest = ReadEnvironmentValue(kUpdateManifestEnvironmentVariable);
-    std::wstring normalized = manifest;
-    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](wchar_t value) {
-        return static_cast<wchar_t>(towlower(value));
-    });
-    const bool allowed = normalized.rfind(L"file:///", 0) == 0 ||
-        normalized.rfind(L"http://127.0.0.1:", 0) == 0 ||
-        normalized.rfind(L"http://localhost:", 0) == 0;
-    if (!allowed) {
-        errorText = L"测试更新源仅允许 file:///、127.0.0.1 或 localhost。";
+    runtimeManifest = ReadEnvironmentValue(kUpdateManifestEnvironmentVariable);
+    launcherManifest = ReadEnvironmentValue(kLauncherUpdateManifestEnvironmentVariable);
+    const auto allowedTestUrl = [](std::wstring value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](wchar_t character) {
+            return static_cast<wchar_t>(towlower(character));
+        });
+        return value.rfind(L"file:///", 0) == 0 ||
+            value.rfind(L"http://127.0.0.1:", 0) == 0 ||
+            value.rfind(L"http://localhost:", 0) == 0;
+    };
+    if (!allowedTestUrl(runtimeManifest) || !allowedTestUrl(launcherManifest)) {
+        errorText = L"测试更新源仅允许 file:///、127.0.0.1 或 localhost，且必须同时提供两个清单。";
         return false;
     }
     return true;
@@ -1197,18 +1243,21 @@ bool RunUpdaterProcess(
         result.errorText = std::move(errorText);
         return false;
     }
-    std::wstring manifest;
+    std::wstring runtimeManifest;
+    std::wstring launcherManifest;
     bool testMode = false;
-    if (!ResolveUpdateManifest(manifest, testMode, errorText)) {
+    if (!ResolveUpdateManifests(runtimeManifest, launcherManifest, testMode, errorText)) {
         result.errorText = std::move(errorText);
         return false;
     }
 
-    const wchar_t* mode = operation == UpdateOperation::Check ? L"check" : L"prepare";
+    const wchar_t* mode = operation == UpdateOperation::Check ? L"check-bundle" : L"prepare-bundle";
     std::wstring commandLine = QuoteArgument(nodeExecutable) + L" " + QuoteArgument(scriptPath) + L" " + mode +
-        L" --manifest " + QuoteTextArgument(manifest) +
+        L" --manifest " + QuoteTextArgument(runtimeManifest) +
+        L" --launcher-manifest " + QuoteTextArgument(launcherManifest) +
         L" --data-root " + QuoteArgument(g_dataRoot) +
-        L" --current-version " + QuoteTextArgument(currentVersion);
+        L" --current-version " + QuoteTextArgument(currentVersion) +
+        L" --current-launcher-version " + QuoteTextArgument(kLauncherVersion);
     if (testMode) {
         commandLine += L" --test-mode";
     }
@@ -1398,6 +1447,26 @@ bool ExtractJsonUnsigned(const std::string& text, const char* name, uint64_t& va
     return true;
 }
 
+bool ExtractJsonBoolean(const std::string& text, const char* name, bool& value) {
+    const std::string key = std::string("\"") + name + "\"";
+    const size_t keyPosition = text.find(key);
+    const size_t colon = keyPosition == std::string::npos ? std::string::npos : text.find(':', keyPosition + key.size());
+    if (colon == std::string::npos) {
+        return false;
+    }
+    size_t position = colon + 1;
+    while (position < text.size() && std::isspace(static_cast<unsigned char>(text[position]))) ++position;
+    if (text.compare(position, 4, "true") == 0) {
+        value = true;
+        return true;
+    }
+    if (text.compare(position, 5, "false") == 0) {
+        value = false;
+        return true;
+    }
+    return false;
+}
+
 DWORD WINAPI UpdateWorkerThread(void* parameter) {
     UpdateWorkerContext* context = static_cast<UpdateWorkerContext*>(parameter);
     UpdateWorkerResult* result = new UpdateWorkerResult();
@@ -1508,13 +1577,14 @@ void HandleUpdateWorkerResult(UpdateWorkerResult* result) {
         if (status == "up-to-date") {
             SetUpdateUiPhase(UpdateUiPhase::Current);
             if (!result->silentWhenCurrent) {
-                ShowUpdateMessage(L"当前 DSH 运行时已经是最新版本。", MB_OK | MB_ICONINFORMATION);
+                ShowUpdateMessage(L"当前 DSH 运行时和桌面启动器已经是最新版本。", MB_OK | MB_ICONINFORMATION);
             }
-        } else if (status == "update-available" && ExtractJsonString(result->output, "version", versionText)) {
+        } else if (status == "update-available" &&
+            ExtractJsonString(result->output, "runtimeVersion", versionText)) {
             SetUpdateUiPhase(UpdateUiPhase::Available);
             uint64_t bytes = 0;
-            ExtractJsonUnsigned(result->output, "size", bytes);
-            const std::wstring version(versionText.begin(), versionText.end());
+            ExtractJsonUnsigned(result->output, "runtimeSize", bytes);
+            const std::wstring version = Utf8ToWide(versionText);
             const uint64_t mebibytes = (bytes + 1024 * 1024 - 1) / (1024 * 1024);
             const std::wstring prompt = L"发现 DSH " + version + L"。\n需要下载约 " +
                 std::to_wstring(mebibytes) + L" MiB 的运行时更新，不会替换启动器或用户数据。\n\n现在下载并安装吗？";
@@ -1524,6 +1594,41 @@ void HandleUpdateWorkerResult(UpdateWorkerResult* result) {
                     ShowUpdateMessage(L"DSH 状态已经变化，未开始下载更新。", MB_OK | MB_ICONWARNING);
                 }
             }
+        } else if (status == "launcher-update-available") {
+            SetUpdateUiPhase(UpdateUiPhase::Available);
+            std::string launcherVersionText;
+            uint64_t launcherBytes = 0;
+            uint64_t runtimeBytes = 0;
+            bool runtimeUpdateAvailable = false;
+            if (!ExtractJsonString(result->output, "launcherVersion", launcherVersionText) ||
+                !ExtractJsonUnsigned(result->output, "launcherSize", launcherBytes) ||
+                !ExtractJsonBoolean(result->output, "runtimeUpdateAvailable", runtimeUpdateAvailable)) {
+                SetUpdateUiPhase(UpdateUiPhase::Error);
+                ShowUpdateMessage(L"启动器更新信息不完整，已停止更新。", MB_OK | MB_ICONERROR);
+            } else {
+                if (runtimeUpdateAvailable) {
+                    ExtractJsonUnsigned(result->output, "runtimeSize", runtimeBytes);
+                }
+                const uint64_t totalBytes = launcherBytes + runtimeBytes;
+                const uint64_t mebibytes = (totalBytes + 1024 * 1024 - 1) / (1024 * 1024);
+                const std::wstring launcherVersion = Utf8ToWide(launcherVersionText);
+                std::wstring prompt = L"发现桌面启动器 " + launcherVersion;
+                if (runtimeUpdateAvailable) {
+                    prompt += L"，并包含兼容的 DSH 运行时更新";
+                }
+                prompt += L"。\n需要下载约 " + std::to_wstring(mebibytes) +
+                    L" MiB。验证完成后应用会自动重启；用户配置和数据不会被删除。\n\n现在下载并安装吗？";
+                if (ShowUpdateMessage(prompt.c_str(), MB_YESNO | MB_ICONINFORMATION) == IDYES &&
+                    !StartUpdaterWorker(UpdateOperation::Prepare, false)) {
+                    SetUpdateUiPhase(UpdateUiPhase::Unavailable);
+                    ShowUpdateMessage(L"DSH 状态已经变化，未开始下载更新。", MB_OK | MB_ICONWARNING);
+                }
+            }
+        } else if (status == "release-incomplete") {
+            SetUpdateUiPhase(UpdateUiPhase::Error);
+            ShowUpdateMessage(
+                L"公开更新源中的启动器与 DSH 运行时版本不匹配。为避免安装不兼容组合，本次更新已停止。",
+                MB_OK | MB_ICONERROR);
         } else if (status == "launcher-update-required") {
             SetUpdateUiPhase(UpdateUiPhase::LauncherRequired);
             std::string minimumText;
@@ -1541,6 +1646,75 @@ void HandleUpdateWorkerResult(UpdateWorkerResult* result) {
                 ShowUpdateMessage(L"更新清单状态无法识别。", MB_OK | MB_ICONERROR);
             }
         }
+        delete result;
+        return;
+    }
+
+    if (status == "bundle-prepared") {
+        std::string launcherVersionText;
+        std::string launcherPathText;
+        std::string launcherSha256Text;
+        std::string runtimeVersionText;
+        uint64_t launcherSize = 0;
+        if (!ExtractJsonString(result->output, "launcherVersion", launcherVersionText) ||
+            !ExtractJsonString(result->output, "launcherPath", launcherPathText) ||
+            !ExtractJsonString(result->output, "launcherSha256", launcherSha256Text) ||
+            !ExtractJsonUnsigned(result->output, "launcherSize", launcherSize)) {
+            SetUpdateUiPhase(UpdateUiPhase::Error);
+            ShowUpdateMessage(L"更新包已验证，但没有得到完整的启动器替换信息。", MB_OK | MB_ICONERROR);
+            delete result;
+            return;
+        }
+        ExtractJsonString(result->output, "runtimeVersion", runtimeVersionText);
+        if (g_uiState != UiState::Running || LoadRuntimeState().pending) {
+            SetUpdateUiPhase(UpdateUiPhase::Unavailable);
+            ShowUpdateMessage(L"DSH 当前不处于可更新状态，已保留下载结果但没有切换版本。",
+                MB_OK | MB_ICONWARNING);
+            delete result;
+            return;
+        }
+
+        dsh::self_update::LaunchRequest request;
+        request.dataRoot = g_dataRoot;
+        request.candidatePath = Utf8ToWide(launcherPathText);
+        request.candidateVersion = Utf8ToWide(launcherVersionText);
+        request.candidateSize = launcherSize;
+        request.candidateSha256 = Utf8ToWide(launcherSha256Text);
+        request.runtimeVersion = Utf8ToWide(runtimeVersionText);
+        SetUpdateUiPhase(UpdateUiPhase::Restarting);
+        ShowUpdateMessage(
+            L"新版启动器已经下载并验证。点击“确定”后，应用会自动关闭、替换并重新打开；若健康检查失败，会自动恢复旧版。",
+            MB_OK | MB_ICONINFORMATION);
+        if (g_uiState != UiState::Running || g_shutdownStarted.load()) {
+            SetUpdateUiPhase(UpdateUiPhase::Unavailable);
+            delete result;
+            return;
+        }
+        dsh::self_update::LaunchResult launchResult;
+        std::wstring helperError;
+        if (!dsh::self_update::LaunchSelfUpdateHelper(request, launchResult, helperError)) {
+            SetUpdateUiPhase(UpdateUiPhase::Error);
+            ShowUpdateMessage((L"无法启动安全更新替换程序。\n" + helperError).c_str(), MB_OK | MB_ICONERROR);
+            delete result;
+            return;
+        }
+        delete result;
+        BeginShutdown();
+        return;
+    }
+
+    if (status == "up-to-date") {
+        SetUpdateUiPhase(UpdateUiPhase::Current);
+        ShowUpdateMessage(L"更新状态已变化，当前已经是最新版本。", MB_OK | MB_ICONINFORMATION);
+        delete result;
+        return;
+    }
+
+    if (status == "release-changed" || status == "release-incomplete") {
+        SetUpdateUiPhase(UpdateUiPhase::Unavailable);
+        ShowUpdateMessage(
+            L"下载期间公开更新源发生了变化，或版本组合尚未完整发布。没有切换任何版本，请稍后重新检查。",
+            MB_OK | MB_ICONWARNING);
         delete result;
         return;
     }
@@ -1754,7 +1928,7 @@ void InitializeWebView() {
                                 Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                                     [](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                         if (sender == nullptr || args == nullptr || !g_webViewReady ||
-                                            g_shutdownStarted.load() || g_uiState != UiState::Running) {
+                                            g_shutdownStarted.load()) {
                                             return S_OK;
                                         }
 
@@ -1797,8 +1971,12 @@ void InitializeWebView() {
                                             wcscmp(message, kWebMessageCheckUpdate) == 0 &&
                                             wcscmp(messageJson, kWebMessageCheckUpdateJson) == 0;
                                         if (exactHello) {
-                                            PostUpdateSnapshot();
-                                        } else if (exactCheck) {
+                                            g_trustedBridgeHelloReceived = true;
+                                            if (g_uiState == UiState::Running) {
+                                                PostUpdateSnapshot();
+                                                MaybeSignalSelfUpdateHealthy();
+                                            }
+                                        } else if (exactCheck && g_uiState == UiState::Running) {
                                             RequestUpdateCheck(UpdateRequestSurface::WebView);
                                         }
                                         if (messageJson != nullptr) {
@@ -1881,12 +2059,14 @@ void InitializeWebView() {
                                             httpStatus >= 200 && httpStatus < 300;
                                         if (healthy) {
                                             std::wstring stateError;
-                                            if (!MarkRuntimeHealthy(stateError)) {
-                                                SetState(UiState::Error, stateError);
-                                            } else {
-                                                g_runtimeRollbackRestarted = false;
-                                                SetState(UiState::Running);
-                                                if (!g_autoUpdateScheduled) {
+                                             if (!MarkRuntimeHealthy(stateError)) {
+                                                 SetState(UiState::Error, stateError);
+                                             } else {
+                                                 g_runtimeRollbackRestarted = false;
+                                                 g_healthNavigationPassed = true;
+                                                 SetState(UiState::Running);
+                                                 MaybeSignalSelfUpdateHealthy();
+                                                 if (!g_autoUpdateScheduled) {
                                                     g_autoUpdateScheduled = true;
                                                     SetTimer(g_window, kAutoUpdateTimerId, kAutoUpdateDelayMs, nullptr);
                                                 }
@@ -2060,6 +2240,8 @@ void StopDsh(bool graceful) {
     g_healthNavigationId = 0;
     g_healthNavigationUrl.clear();
     g_healthRuntimeId.clear();
+    g_healthNavigationPassed = false;
+    g_trustedBridgeHelloReceived = false;
     if (g_dshProcess == nullptr) {
         CloseDshHandles();
         return;
@@ -2481,6 +2663,24 @@ void BringExistingWindowToFront() {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     g_instance = instance;
     g_appRoot = ExecutableDirectory();
+    std::wstring selfUpdateCommandError;
+    dsh::self_update::StartupCommand startupCommand;
+    const auto selfUpdateDisposition = dsh::self_update::ParseCommandLine(
+        GetCommandLineW(), startupCommand, selfUpdateCommandError);
+    if (selfUpdateDisposition == dsh::self_update::ParseDisposition::Invalid) {
+        MessageBoxW(nullptr, selfUpdateCommandError.c_str(), kWindowTitle, MB_OK | MB_ICONERROR);
+        return 2;
+    }
+    if (selfUpdateDisposition == dsh::self_update::ParseDisposition::Internal &&
+        (startupCommand.kind == dsh::self_update::StartupKind::Helper ||
+            startupCommand.kind == dsh::self_update::StartupKind::Recovery)) {
+        return dsh::self_update::RunSelfUpdateHelper(startupCommand, selfUpdateCommandError);
+    }
+    if (selfUpdateDisposition == dsh::self_update::ParseDisposition::Internal &&
+        startupCommand.kind == dsh::self_update::StartupKind::Health) {
+        g_selfUpdateCommand = std::move(startupCommand);
+        g_selfUpdateHealthMode = true;
+    }
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     SetCurrentProcessExplicitAppUserModelID(kAppUserModelId);
 
@@ -2503,6 +2703,39 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         return 1;
     }
     g_dataRoot = LauncherDataRoot();
+    if (!g_selfUpdateHealthMode) {
+        std::wstring recoveryError;
+        const auto recovery = dsh::self_update::RecoverInterruptedSelfUpdate(g_dataRoot, recoveryError);
+        if (recovery == dsh::self_update::RecoveryDisposition::ExitForRecovery) {
+            CoUninitialize();
+            CloseHandle(g_singleInstanceMutex);
+            g_singleInstanceMutex = nullptr;
+            return 0;
+        }
+        if (recovery == dsh::self_update::RecoveryDisposition::Error) {
+            MessageBoxW(nullptr,
+                (L"无法安全恢复上次中断的启动器更新。\n" + recoveryError).c_str(),
+                kWindowTitle,
+                MB_OK | MB_ICONERROR);
+            CoUninitialize();
+            CloseHandle(g_singleInstanceMutex);
+            g_singleInstanceMutex = nullptr;
+            return 4;
+        }
+    }
+    if (g_selfUpdateHealthMode) {
+        std::wstring activationError;
+        if (!dsh::self_update::ActivateRequestedRuntime(g_selfUpdateCommand, g_dataRoot, activationError)) {
+            MessageBoxW(nullptr,
+                (L"无法激活与新版启动器配套的 DSH 运行时。\n" + activationError).c_str(),
+                kWindowTitle,
+                MB_OK | MB_ICONERROR);
+            CoUninitialize();
+            CloseHandle(g_singleInstanceMutex);
+            g_singleInstanceMutex = nullptr;
+            return 3;
+        }
+    }
 
     if (!RegisterWindowClass()) {
         MessageBoxW(nullptr, L"无法注册主窗口。", kWindowTitle, MB_OK | MB_ICONERROR);

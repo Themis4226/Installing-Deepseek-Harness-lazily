@@ -1,0 +1,3 @@
+- insert:
+    - id: official-update-check
+      name: '@themis4226/dsh-official-update-check'

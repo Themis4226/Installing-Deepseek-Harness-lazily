@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.3.0',
+    [string]$Version = '1.4.0',
     [string]$DshVersion = '0.1.1-rc.2',
     [string]$RuntimeArchive,
     [string]$NodeExecutable = 'node.exe'
@@ -26,6 +26,25 @@ function Assert-ExactChildPath([string]$candidate, [string]$parent, [string]$exp
     $expected = [IO.Path]::GetFullPath((Join-Path $parent $expectedName)).TrimEnd('\')
     if ($candidate -ne $expected -or -not $candidate.StartsWith("$parent\", [StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to modify unverified path: $candidate"
+    }
+}
+
+function Remove-VerifiedDirectoryTree([string]$candidate, [string]$parent, [string]$expectedName) {
+    Assert-ExactChildPath $candidate $parent $expectedName
+    if (-not (Test-Path -LiteralPath $candidate -PathType Container)) { return }
+
+    $emptyName = "$expectedName.cleanup-empty"
+    $emptyPath = [IO.Path]::GetFullPath((Join-Path $parent $emptyName)).TrimEnd('\')
+    Assert-ExactChildPath $emptyPath $parent $emptyName
+    if (Test-Path -LiteralPath $emptyPath) { Remove-Item -LiteralPath $emptyPath -Recurse -Force }
+    New-Item -ItemType Directory -Path $emptyPath -Force | Out-Null
+    try {
+        $null = & (Join-Path $env:SystemRoot 'System32\robocopy.exe') $emptyPath $candidate /MIR /XJ /R:1 /W:1 /NFL /NDL /NJH /NJS /NP
+        $robocopyExit = $LASTEXITCODE
+        if ($robocopyExit -ge 8) { throw "Long-path cleanup failed with robocopy exit code ${robocopyExit}: $candidate" }
+        Remove-Item -LiteralPath $candidate -Force
+    } finally {
+        if (Test-Path -LiteralPath $emptyPath) { Remove-Item -LiteralPath $emptyPath -Recurse -Force }
     }
 }
 
@@ -57,8 +76,10 @@ $launcherBuildInputs = @(
     (Join-Path $workspace 'launcher\DeepSeekHarnessLauncher.rc'),
     (Join-Path $workspace 'launcher\DeepSeekHarnessLauncher.manifest'),
     (Join-Path $workspace 'launcher\resource.h'),
-    (Join-Path $workspace 'launcher\updater.mjs')
-)
+    (Join-Path $workspace 'launcher\updater.mjs'),
+    (Join-Path $workspace 'launcher\self_update.cpp'),
+    (Join-Path $workspace 'launcher\self_update.h')
+) + $integrationRequired
 $newestLauncherInput = $launcherBuildInputs | Get-Item | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
 $exeItem = Get-Item -LiteralPath $exePath
 if ($exeItem.LastWriteTimeUtc -lt $newestLauncherInput.LastWriteTimeUtc) {
@@ -73,15 +94,19 @@ foreach ($requiredMarker in @('registerHooks', '@themis4226/dsh-launcher-update-
 foreach ($requiredMarker in @('DSH_LAUNCHER_INTEGRATION_ROOT', 'dsh-launcher:v1:update.check')) {
     if (-not $exeUtf16.Contains($requiredMarker)) { throw "Launcher EXE is missing marker: $requiredMarker" }
 }
-foreach ($forbiddenMarker in @('帮助', '无法准备桌面启动器设置集成。')) {
+$forbiddenMarkers = @(
+    [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('5biu5Yqp')),
+    [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('5peg5rOV5YeG5aSH5qGM6Z2i5ZCv5Yqo5Zmo6K6+572u6ZuG5oiQ44CC'))
+)
+foreach ($forbiddenMarker in $forbiddenMarkers) {
     if ($exeUtf16.Contains($forbiddenMarker)) { throw "Launcher EXE still contains removed marker: $forbiddenMarker" }
 }
 
 New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
-if (Test-Path -LiteralPath $stagePath) { Remove-Item -LiteralPath $stagePath -Recurse -Force }
+Remove-VerifiedDirectoryTree $stagePath $distRoot $stageName
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 if (Test-Path -LiteralPath $checksumPath) { Remove-Item -LiteralPath $checksumPath -Force }
-if (Test-Path -LiteralPath $runtimeExtractPath) { Remove-Item -LiteralPath $runtimeExtractPath -Recurse -Force }
+Remove-VerifiedDirectoryTree $runtimeExtractPath $distRoot $runtimeExtractName
 New-Item -ItemType Directory -Path $stagePath -Force | Out-Null
 
 Copy-Item -LiteralPath $exePath -Destination $stagePath
@@ -91,13 +116,6 @@ Copy-Item -LiteralPath $workspaceConfigPath -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'README-LITE.md') -Destination (Join-Path $stagePath 'README.md')
 Copy-Item -LiteralPath (Join-Path $packagingRoot 'PUBLIC-RELEASE-NOTICE.md') -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $workspace 'THIRD_PARTY_NOTICES.md') -Destination $stagePath
-$stageIntegrationPath = Join-Path $stagePath 'launcher-integration'
-$stageIntegrationPackage = Join-Path $stageIntegrationPath 'dsh-launcher-update-ui'
-New-Item -ItemType Directory -Path (Join-Path $stageIntegrationPackage 'lib') -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $integrationPath 'cordis.patch.yml') -Destination $stageIntegrationPath
-Copy-Item -LiteralPath (Join-Path $integrationPackagePath 'package.json') -Destination $stageIntegrationPackage
-Copy-Item -LiteralPath (Join-Path $integrationPackagePath 'lib\index.js') -Destination (Join-Path $stageIntegrationPackage 'lib')
-Copy-Item -LiteralPath (Join-Path $integrationPackagePath 'lib\client.js') -Destination (Join-Path $stageIntegrationPackage 'lib')
 
 $nodeCommand = if ([IO.Path]::IsPathRooted($NodeExecutable)) {
     if (-not (Test-Path -LiteralPath $NodeExecutable -PathType Leaf)) {
@@ -119,7 +137,7 @@ if (-not (Test-Path -LiteralPath $runtimeNodeModules -PathType Container)) {
     throw 'Verified runtime archive did not extract node_modules.'
 }
 Move-Item -LiteralPath $runtimeNodeModules -Destination (Join-Path $stagePath 'node_modules')
-Remove-Item -LiteralPath $runtimeExtractPath -Recurse -Force
+Remove-VerifiedDirectoryTree $runtimeExtractPath $distRoot $runtimeExtractName
 
 $dshPackagePath = Join-Path $stagePath 'node_modules\@deepseek-ai\dsh\package.json'
 $dshEntryPath = Join-Path $stagePath 'node_modules\@deepseek-ai\dsh\lib\bin.js'
@@ -158,7 +176,9 @@ $release = [ordered]@{
     updater = [ordered]@{
         channel = 'preview'
         manifest = 'https://raw.githubusercontent.com/Themis4226/Installing-Deepseek-Harness-lazily/main/update.json'
+        launcherManifest = 'https://raw.githubusercontent.com/Themis4226/Installing-Deepseek-Harness-lazily/main/launcher-update.json'
         runtimeFormat = 'dsh-runtime-zip-v1'
+        launcherFormat = 'portable-exe-v1'
     }
     generatedUtc = [DateTime]::UtcNow.ToString('o')
 }
@@ -168,11 +188,11 @@ $sensitiveValues = @(
     $workspace,
     $env:USERPROFILE,
     $env:USERNAME,
-    $nodeCommand,
-    'E:\VS code\New Folder\node.exe'
+    $nodeCommand
 ) | Where-Object { $_ }
-& $nodeCommand (Join-Path $packagingRoot 'verify-lite-stage.mjs') $stagePath @sensitiveValues
+$stageVerificationJson = & $nodeCommand (Join-Path $packagingRoot 'verify-lite-stage.mjs') $stagePath @sensitiveValues
 if ($LASTEXITCODE -ne 0) { throw "Stage verification failed with exit code $LASTEXITCODE" }
+$stageVerification = $stageVerificationJson | ConvertFrom-Json
 
 Push-Location $distRoot
 try {
@@ -192,16 +212,14 @@ if ($badEntries.Count -gt 0) { throw "ZIP contains entries outside the release r
 $hash = Get-FileHash -LiteralPath $zipPath -Algorithm SHA256
 "$($hash.Hash) *$([IO.Path]::GetFileName($zipPath))" | Set-Content -LiteralPath $checksumPath -Encoding ascii
 
-$stageFiles = @(Get-ChildItem -LiteralPath $stagePath -Recurse -File)
-$stageBytes = ($stageFiles | Measure-Object -Property Length -Sum).Sum
 [pscustomobject]@{
     ZipPath = $zipPath
     ZipBytes = (Get-Item -LiteralPath $zipPath).Length
     Sha256 = $hash.Hash
-    StageFiles = $stageFiles.Count
-    StageBytes = $stageBytes
+    StageFiles = [int]$stageVerification.fileCount
+    StageBytes = [long]$stageVerification.totalBytes
     DshVersion = $dshPackage.version
     ExeVersion = $exeVersion
 } | Format-List
 
-Remove-Item -LiteralPath $stagePath -Recurse -Force
+Remove-VerifiedDirectoryTree $stagePath $distRoot $stageName

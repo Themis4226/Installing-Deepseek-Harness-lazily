@@ -20,18 +20,28 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
-export const LAUNCHER_VERSION = '1.3.0'
+export const LAUNCHER_VERSION = '1.4.0'
 export const DEFAULT_MANIFEST_URL =
   'https://raw.githubusercontent.com/Themis4226/Installing-Deepseek-Harness-lazily/main/update.json'
+export const DEFAULT_LAUNCHER_MANIFEST_URL =
+  'https://raw.githubusercontent.com/Themis4226/Installing-Deepseek-Harness-lazily/main/launcher-update.json'
 export const RUNTIME_PLATFORM = 'win32'
 export const RUNTIME_ARCH = 'x64'
 export const RUNTIME_FORMAT = 'dsh-runtime-zip-v1'
+export const LAUNCHER_FORMAT = 'portable-exe-v1'
 export const DSH_PACKAGE = '@deepseek-ai/dsh'
 export const FIXED_RUNTIME_ENTRY = 'node_modules/@deepseek-ai/dsh/lib/bin.js'
+export const FIXED_LAUNCHER_FILE = 'DeepSeek Harness.exe'
 
 const RUNTIME_METADATA_FILE = 'runtime.json'
+const RUNTIME_ALLOWED_TOP_LEVEL = new Set(['node_modules', RUNTIME_METADATA_FILE])
+const FORBIDDEN_LAUNCHER_PACKAGE_ROOTS = [
+  'runtime/node_modules/@themis4226/dsh-launcher-update-ui',
+  'runtime/node_modules/@themis4226/dsh-official-update-check',
+]
 const MAX_MANIFEST_BYTES = 1024 * 1024
 const MAX_ASSET_BYTES = 512 * 1024 * 1024
+const MAX_LAUNCHER_ASSET_BYTES = 32 * 1024 * 1024
 const MAX_ARCHIVE_FILES = 200_000
 const MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 const MAX_REDIRECTS = 5
@@ -153,15 +163,16 @@ function validateFetchUrl(url, { testMode, kind, redirect = false }) {
     fail('URL_NOT_ALLOWED', `${kind} URL must use HTTPS`)
   }
   const hostname = url.hostname.toLowerCase()
-  if (kind === 'manifest' && !redirect) {
-    if (url.href !== DEFAULT_MANIFEST_URL) {
-      fail('URL_NOT_ALLOWED', `production manifest URL must be ${DEFAULT_MANIFEST_URL}`)
+  if ((kind === 'manifest' || kind === 'launcher-manifest') && !redirect) {
+    const expected = kind === 'manifest' ? DEFAULT_MANIFEST_URL : DEFAULT_LAUNCHER_MANIFEST_URL
+    if (url.href !== expected) {
+      fail('URL_NOT_ALLOWED', `production ${kind} URL must be ${expected}`)
     }
     return
   }
-  if (kind === 'asset' && !redirect) {
+  if ((kind === 'asset' || kind === 'launcher-asset') && !redirect) {
     if (hostname !== 'github.com' || !url.pathname.startsWith(RELEASE_ASSET_PREFIX)) {
-      fail('URL_NOT_ALLOWED', 'runtime asset must be a Release asset from the configured repository')
+      fail('URL_NOT_ALLOWED', `${kind} must be a Release asset from the configured repository`)
     }
     return
   }
@@ -266,6 +277,78 @@ export function validateManifest(value, { testMode = false } = {}) {
   })
 }
 
+export function validateLauncherManifest(value, { testMode = false } = {}) {
+  requireExactKeys(
+    value,
+    ['schemaVersion', 'channel', 'publishedAt', 'launcher', 'releaseNotesUrl'],
+    [],
+    'launcher manifest',
+  )
+  if (value.schemaVersion !== 1) fail('SCHEMA_INVALID', 'launcher manifest schemaVersion must be 1')
+  if (value.channel !== 'preview' && value.channel !== 'stable') {
+    fail('SCHEMA_INVALID', 'launcher manifest channel must be preview or stable')
+  }
+  if (
+    typeof value.publishedAt !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value.publishedAt) ||
+    !Number.isFinite(Date.parse(value.publishedAt))
+  ) {
+    fail('SCHEMA_INVALID', 'launcher manifest publishedAt must be an ISO-8601 UTC timestamp')
+  }
+
+  requireExactKeys(
+    value.launcher,
+    ['version', 'platform', 'arch', 'format', 'asset'],
+    [],
+    'launcher',
+  )
+  parseSemver(value.launcher.version, 'launcher.version')
+  if (value.launcher.platform !== RUNTIME_PLATFORM) {
+    fail('PLATFORM_MISMATCH', `launcher.platform must be ${RUNTIME_PLATFORM}`)
+  }
+  if (value.launcher.arch !== RUNTIME_ARCH) {
+    fail('ARCH_MISMATCH', `launcher.arch must be ${RUNTIME_ARCH}`)
+  }
+  if (value.launcher.format !== LAUNCHER_FORMAT) {
+    fail('FORMAT_MISMATCH', `launcher.format must be ${LAUNCHER_FORMAT}`)
+  }
+
+  requireExactKeys(value.launcher.asset, ['url', 'size', 'sha256'], [], 'launcher.asset')
+  const assetUrl = parseUrl(value.launcher.asset.url, 'launcher.asset.url')
+  validateFetchUrl(assetUrl, { testMode, kind: 'launcher-asset' })
+  if (
+    !Number.isSafeInteger(value.launcher.asset.size) ||
+    value.launcher.asset.size <= 0 ||
+    value.launcher.asset.size > MAX_LAUNCHER_ASSET_BYTES
+  ) {
+    fail('SCHEMA_INVALID', `launcher.asset.size must be between 1 and ${MAX_LAUNCHER_ASSET_BYTES}`)
+  }
+  if (
+    typeof value.launcher.asset.sha256 !== 'string' ||
+    !/^[0-9a-fA-F]{64}$/.test(value.launcher.asset.sha256)
+  ) {
+    fail('SCHEMA_INVALID', 'launcher.asset.sha256 must contain exactly 64 hexadecimal characters')
+  }
+
+  return Object.freeze({
+    schemaVersion: 1,
+    channel: value.channel,
+    publishedAt: value.publishedAt,
+    releaseNotesUrl: validateReleaseNotesUrl(value.releaseNotesUrl, testMode),
+    launcher: Object.freeze({
+      version: value.launcher.version,
+      platform: RUNTIME_PLATFORM,
+      arch: RUNTIME_ARCH,
+      format: LAUNCHER_FORMAT,
+      asset: Object.freeze({
+        url: assetUrl.href,
+        size: value.launcher.asset.size,
+        sha256: value.launcher.asset.sha256.toLowerCase(),
+      }),
+    }),
+  })
+}
+
 function requestStream(url, { testMode, kind, redirects = 0 }) {
   validateFetchUrl(url, { testMode, kind, redirect: redirects > 0 })
   if (url.protocol === 'file:') {
@@ -277,7 +360,7 @@ function requestStream(url, { testMode, kind, redirects = 0 }) {
       url,
       {
         headers: {
-          Accept: kind === 'manifest' ? 'application/json' : 'application/octet-stream',
+          Accept: kind.endsWith('manifest') ? 'application/json' : 'application/octet-stream',
           'User-Agent': `DSH-Desktop-Launcher/${LAUNCHER_VERSION}`,
         },
       },
@@ -357,9 +440,33 @@ export async function loadManifest(manifestUrl, { testMode = false } = {}) {
   return validateManifest(parsed, { testMode })
 }
 
-function updateStatus(manifest, currentVersion) {
+export async function loadLauncherManifest(manifestUrl, { testMode = false } = {}) {
+  const url = parseUrl(manifestUrl, 'launcher manifest URL')
+  validateFetchUrl(url, { testMode, kind: 'launcher-manifest' })
+  let bytes
+  try {
+    bytes = await readLimited(
+      await requestStream(url, { testMode, kind: 'launcher-manifest' }),
+      MAX_MANIFEST_BYTES,
+      'launcher manifest',
+    )
+  } catch (error) {
+    if (error instanceof UpdaterError) throw error
+    fail('MANIFEST_DOWNLOAD_FAILED', `unable to read launcher update manifest: ${error.message}`, { cause: error })
+  }
+  let parsed
+  try {
+    parsed = JSON.parse(bytes.toString('utf8'))
+  } catch (error) {
+    fail('MANIFEST_JSON_INVALID', 'launcher update manifest is not valid UTF-8 JSON', { cause: error })
+  }
+  return validateLauncherManifest(parsed, { testMode })
+}
+
+function updateStatus(manifest, currentVersion, launcherVersion = LAUNCHER_VERSION) {
   parseSemver(currentVersion, 'current version')
-  if (compareSemver(LAUNCHER_VERSION, manifest.minimumLauncherVersion) < 0) {
+  parseSemver(launcherVersion, 'launcher version')
+  if (compareSemver(launcherVersion, manifest.minimumLauncherVersion) < 0) {
     return 'launcher-update-required'
   }
   return compareSemver(manifest.runtime.version, currentVersion) > 0
@@ -367,10 +474,15 @@ function updateStatus(manifest, currentVersion) {
     : 'up-to-date'
 }
 
-export async function checkForUpdate({ manifestUrl, currentVersion, testMode = false }) {
+export async function checkForUpdate({
+  manifestUrl,
+  currentVersion,
+  launcherVersion = LAUNCHER_VERSION,
+  testMode = false,
+}) {
   const manifest = await loadManifest(manifestUrl, { testMode })
   return {
-    status: updateStatus(manifest, currentVersion),
+    status: updateStatus(manifest, currentVersion, launcherVersion),
     currentVersion,
     version: manifest.runtime.version,
     minimumLauncherVersion: manifest.minimumLauncherVersion,
@@ -378,6 +490,59 @@ export async function checkForUpdate({ manifestUrl, currentVersion, testMode = f
     size: manifest.runtime.asset.size,
     sha256: manifest.runtime.asset.sha256,
     manifest,
+  }
+}
+
+export async function checkForBundle({
+  manifestUrl,
+  launcherManifestUrl,
+  currentVersion,
+  currentLauncherVersion = LAUNCHER_VERSION,
+  testMode = false,
+}) {
+  parseSemver(currentVersion, 'current runtime version')
+  parseSemver(currentLauncherVersion, 'current launcher version')
+  const [runtimeManifest, launcherManifest] = await Promise.all([
+    loadManifest(manifestUrl, { testMode }),
+    loadLauncherManifest(launcherManifestUrl, { testMode }),
+  ])
+  const runtimeUpdateAvailable = compareSemver(runtimeManifest.runtime.version, currentVersion) > 0
+  const launcherUpdateAvailable =
+    compareSemver(launcherManifest.launcher.version, currentLauncherVersion) > 0
+  const effectiveLauncherVersion = launcherUpdateAvailable
+    ? launcherManifest.launcher.version
+    : currentLauncherVersion
+
+  let status = 'up-to-date'
+  if (
+    runtimeUpdateAvailable &&
+    compareSemver(effectiveLauncherVersion, runtimeManifest.minimumLauncherVersion) < 0
+  ) {
+    status = 'release-incomplete'
+  } else if (launcherUpdateAvailable) {
+    status = 'launcher-update-available'
+  } else if (runtimeUpdateAvailable) {
+    status = 'update-available'
+  }
+
+  return {
+    status,
+    currentVersion,
+    currentLauncherVersion,
+    runtimeUpdateAvailable,
+    launcherUpdateAvailable,
+    runtimeVersion: runtimeManifest.runtime.version,
+    runtimeSize: runtimeManifest.runtime.asset.size,
+    runtimeSha256: runtimeManifest.runtime.asset.sha256,
+    minimumLauncherVersion: runtimeManifest.minimumLauncherVersion,
+    launcherVersion: launcherManifest.launcher.version,
+    launcherSize: launcherManifest.launcher.asset.size,
+    launcherSha256: launcherManifest.launcher.asset.sha256,
+    releaseNotesUrl: launcherUpdateAvailable
+      ? launcherManifest.releaseNotesUrl
+      : runtimeManifest.releaseNotesUrl,
+    runtimeManifest,
+    launcherManifest,
   }
 }
 
@@ -391,17 +556,23 @@ async function syncFile(filePath) {
   }
 }
 
-export async function downloadAndHash(urlValue, destination, expected, { testMode = false } = {}) {
-  const url = parseUrl(urlValue, 'runtime asset URL')
-  validateFetchUrl(url, { testMode, kind: 'asset' })
-  const source = await requestStream(url, { testMode, kind: 'asset' })
+export async function downloadAndHash(
+  urlValue,
+  destination,
+  expected,
+  { testMode = false, kind = 'asset', maxBytes = MAX_ASSET_BYTES } = {},
+) {
+  const label = kind === 'launcher-asset' ? 'launcher asset' : 'runtime asset'
+  const url = parseUrl(urlValue, `${label} URL`)
+  validateFetchUrl(url, { testMode, kind })
+  const source = await requestStream(url, { testMode, kind })
   const hash = createHash('sha256')
   let size = 0
   const meter = new Transform({
     transform(chunk, _encoding, callback) {
       size += chunk.length
-      if (size > expected.size || size > MAX_ASSET_BYTES) {
-        callback(new UpdaterError('SIZE_MISMATCH', `runtime asset exceeds expected size ${expected.size}`))
+      if (size > expected.size || size > maxBytes) {
+        callback(new UpdaterError('SIZE_MISMATCH', `${label} exceeds expected size ${expected.size}`))
         return
       }
       hash.update(chunk)
@@ -414,18 +585,64 @@ export async function downloadAndHash(urlValue, destination, expected, { testMod
   } catch (error) {
     await rm(destination, { force: true }).catch(() => {})
     if (error instanceof UpdaterError) throw error
-    fail('ASSET_DOWNLOAD_FAILED', `unable to download runtime asset: ${error.message}`, { cause: error })
+    fail('ASSET_DOWNLOAD_FAILED', `unable to download ${label}: ${error.message}`, { cause: error })
   }
   if (size !== expected.size) {
     await rm(destination, { force: true }).catch(() => {})
-    fail('SIZE_MISMATCH', `runtime asset size is ${size}, expected ${expected.size}`)
+    fail('SIZE_MISMATCH', `${label} size is ${size}, expected ${expected.size}`)
   }
   const digest = hash.digest('hex')
   if (digest !== expected.sha256.toLowerCase()) {
     await rm(destination, { force: true }).catch(() => {})
-    fail('HASH_MISMATCH', `runtime asset SHA256 is ${digest}, expected ${expected.sha256.toLowerCase()}`)
+    fail('HASH_MISMATCH', `${label} SHA256 is ${digest}, expected ${expected.sha256.toLowerCase()}`)
   }
   return { size, sha256: digest }
+}
+
+async function sha256File(filePath) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+  return hash.digest('hex')
+}
+
+export async function validateLauncherExecutable(executablePath, expected) {
+  const metadata = await lstat(executablePath).catch(() => null)
+  if (!metadata?.isFile() || metadata.isSymbolicLink()) {
+    fail('LAUNCHER_INVALID', `launcher executable is missing or unsafe: ${executablePath}`)
+  }
+  if (metadata.size !== expected.size) {
+    fail('SIZE_MISMATCH', `launcher executable size is ${metadata.size}, expected ${expected.size}`)
+  }
+  const digest = await sha256File(executablePath)
+  if (digest !== expected.sha256.toLowerCase()) {
+    fail('HASH_MISMATCH', `launcher executable SHA256 is ${digest}, expected ${expected.sha256.toLowerCase()}`)
+  }
+
+  const handle = await open(executablePath, 'r')
+  try {
+    const dosHeader = Buffer.alloc(64)
+    const dosRead = await handle.read(dosHeader, 0, dosHeader.length, 0)
+    if (dosRead.bytesRead !== dosHeader.length || dosHeader.toString('ascii', 0, 2) !== 'MZ') {
+      fail('LAUNCHER_INVALID', 'launcher executable does not have a valid DOS header')
+    }
+    const peOffset = dosHeader.readUInt32LE(0x3c)
+    if (peOffset < 64 || peOffset > 1024 * 1024) {
+      fail('LAUNCHER_INVALID', 'launcher executable has an unsafe PE header offset')
+    }
+    const peHeader = Buffer.alloc(26)
+    const peRead = await handle.read(peHeader, 0, peHeader.length, peOffset)
+    if (
+      peRead.bytesRead !== peHeader.length ||
+      peHeader.readUInt32LE(0) !== 0x00004550 ||
+      peHeader.readUInt16LE(4) !== 0x8664 ||
+      peHeader.readUInt16LE(24) !== 0x020b
+    ) {
+      fail('LAUNCHER_INVALID', 'launcher executable is not a PE32+ AMD64 application')
+    }
+  } finally {
+    await handle.close()
+  }
+  return { size: metadata.size, sha256: digest }
 }
 
 function defaultTarPath() {
@@ -477,11 +694,19 @@ export function validateArchiveEntryNames(entryNames) {
     fail('ARCHIVE_TOO_MANY_FILES', `runtime archive has more than ${MAX_ARCHIVE_FILES} entries`)
   }
   const seen = new Set()
+  const forbiddenRoots = FORBIDDEN_LAUNCHER_PACKAGE_ROOTS.map((value) => value.toLowerCase())
   for (const name of entryNames) {
     const normalized = validateArchiveEntryName(name)
     const folded = normalized.toLowerCase()
     if (seen.has(folded)) {
       fail('ARCHIVE_ENTRY_INVALID', `archive contains a duplicate path: ${name}`)
+    }
+    const directChild = normalized.split('/')[1]
+    if (directChild !== undefined && !RUNTIME_ALLOWED_TOP_LEVEL.has(directChild)) {
+      fail('ARCHIVE_ENTRY_INVALID', `runtime/ contains an unexpected top-level entry: ${directChild}`)
+    }
+    if (forbiddenRoots.some((root) => folded === root || folded.startsWith(`${root}/`))) {
+      fail('ARCHIVE_ENTRY_INVALID', 'runtime archive contains a launcher-only package')
     }
     seen.add(folded)
   }
@@ -567,6 +792,18 @@ export async function validateRuntimeTree(runtimeRoot, expectedVersion) {
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink()) {
     fail('RUNTIME_INVALID', `runtime root is missing or unsafe: ${runtimeRoot}`)
   }
+  const runtimeTopLevel = await readdir(runtimeRoot)
+  for (const entry of runtimeTopLevel) {
+    if (!RUNTIME_ALLOWED_TOP_LEVEL.has(entry)) {
+      fail('RUNTIME_INVALID', `runtime contains an unexpected top-level entry: ${entry}`)
+    }
+  }
+  for (const packageName of ['dsh-launcher-update-ui', 'dsh-official-update-check']) {
+    const packagePath = path.join(runtimeRoot, 'node_modules', '@themis4226', packageName)
+    if (await lstat(packagePath).catch(() => null)) {
+      fail('RUNTIME_INVALID', `runtime contains a launcher-only package: ${packageName}`)
+    }
+  }
   const tree = await walkExtractedTree(runtimeRoot)
   const metadata = await readJsonFile(
     path.join(runtimeRoot, RUNTIME_METADATA_FILE),
@@ -633,11 +870,12 @@ export async function prepareRuntime({
   manifestUrl,
   dataRoot,
   currentVersion,
+  launcherVersion = LAUNCHER_VERSION,
   testMode = false,
   tarPath,
 }) {
   const resolvedDataRoot = assertSafeDataRoot(dataRoot)
-  const check = await checkForUpdate({ manifestUrl, currentVersion, testMode })
+  const check = await checkForUpdate({ manifestUrl, currentVersion, launcherVersion, testMode })
   if (check.status !== 'update-available') {
     return {
       status: check.status,
@@ -711,10 +949,168 @@ export async function prepareRuntime({
   }
 }
 
+export async function prepareLauncher({
+  launcherManifestUrl,
+  dataRoot,
+  currentLauncherVersion = LAUNCHER_VERSION,
+  testMode = false,
+}) {
+  const resolvedDataRoot = assertSafeDataRoot(dataRoot)
+  parseSemver(currentLauncherVersion, 'current launcher version')
+  const manifest = await loadLauncherManifest(launcherManifestUrl, { testMode })
+  const version = safeVersionDirectory(manifest.launcher.version)
+  if (compareSemver(version, currentLauncherVersion) <= 0) {
+    return {
+      status: 'launcher-up-to-date',
+      currentLauncherVersion,
+      launcherVersion: version,
+      releaseNotesUrl: manifest.releaseNotesUrl,
+    }
+  }
+
+  const updatesRoot = path.join(resolvedDataRoot, 'updates')
+  const launchersRoot = path.join(updatesRoot, 'launchers')
+  const targetRoot = path.join(launchersRoot, version)
+  const targetPath = path.join(targetRoot, FIXED_LAUNCHER_FILE)
+  assertDirectChild(targetRoot, launchersRoot, 'launcher target')
+  await mkdir(launchersRoot, { recursive: true })
+
+  if (await pathExists(targetRoot)) {
+    await validateLauncherExecutable(targetPath, manifest.launcher.asset)
+    return {
+      status: 'launcher-already-prepared',
+      currentLauncherVersion,
+      launcherVersion: version,
+      launcherPath: targetPath,
+      launcherSize: manifest.launcher.asset.size,
+      launcherSha256: manifest.launcher.asset.sha256,
+      releaseNotesUrl: manifest.releaseNotesUrl,
+    }
+  }
+
+  const transaction = `${process.pid}-${randomUUID()}`
+  const stagingRoot = path.join(updatesRoot, `launcher-staging-${version}-${transaction}`)
+  const stagedPath = path.join(stagingRoot, FIXED_LAUNCHER_FILE)
+  assertDirectChild(stagingRoot, updatesRoot, 'launcher staging directory')
+  let moved = false
+  try {
+    await mkdir(stagingRoot, { recursive: false })
+    const downloaded = await downloadAndHash(
+      manifest.launcher.asset.url,
+      stagedPath,
+      manifest.launcher.asset,
+      { testMode, kind: 'launcher-asset', maxBytes: MAX_LAUNCHER_ASSET_BYTES },
+    )
+    await validateLauncherExecutable(stagedPath, manifest.launcher.asset)
+    try {
+      await rename(stagingRoot, targetRoot)
+      moved = true
+    } catch (error) {
+      if (error?.code !== 'EEXIST' && error?.code !== 'ENOTEMPTY') throw error
+      await validateLauncherExecutable(targetPath, manifest.launcher.asset)
+    }
+    return {
+      status: moved ? 'launcher-prepared' : 'launcher-already-prepared',
+      currentLauncherVersion,
+      launcherVersion: version,
+      launcherPath: targetPath,
+      launcherSize: downloaded.size,
+      launcherSha256: downloaded.sha256,
+      releaseNotesUrl: manifest.releaseNotesUrl,
+    }
+  } finally {
+    if (!moved) await rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+export async function prepareBundle({
+  manifestUrl,
+  launcherManifestUrl,
+  dataRoot,
+  currentVersion,
+  currentLauncherVersion = LAUNCHER_VERSION,
+  testMode = false,
+  tarPath,
+}) {
+  const checked = await checkForBundle({
+    manifestUrl,
+    launcherManifestUrl,
+    currentVersion,
+    currentLauncherVersion,
+    testMode,
+  })
+  if (checked.status === 'up-to-date' || checked.status === 'release-incomplete') {
+    return checked
+  }
+
+  const effectiveLauncherVersion = checked.launcherUpdateAvailable
+    ? checked.launcherVersion
+    : currentLauncherVersion
+  let runtime
+  if (checked.runtimeUpdateAvailable) {
+    runtime = await prepareRuntime({
+      manifestUrl,
+      dataRoot,
+      currentVersion,
+      launcherVersion: effectiveLauncherVersion,
+      testMode,
+      tarPath,
+    })
+    if (
+      (runtime.status !== 'prepared' && runtime.status !== 'already-prepared') ||
+      runtime.version !== checked.runtimeVersion
+    ) {
+      return {
+        status: 'release-changed',
+        currentVersion,
+        currentLauncherVersion,
+        releaseNotesUrl: checked.releaseNotesUrl,
+      }
+    }
+  }
+  let launcher
+  if (checked.launcherUpdateAvailable) {
+    launcher = await prepareLauncher({
+      launcherManifestUrl,
+      dataRoot,
+      currentLauncherVersion,
+      testMode,
+    })
+    if (
+      (launcher.status !== 'launcher-prepared' && launcher.status !== 'launcher-already-prepared') ||
+      launcher.launcherVersion !== checked.launcherVersion
+    ) {
+      return {
+        status: 'release-changed',
+        currentVersion,
+        currentLauncherVersion,
+        releaseNotesUrl: checked.releaseNotesUrl,
+      }
+    }
+  }
+
+  if (launcher) {
+    return {
+      status: 'bundle-prepared',
+      currentVersion,
+      currentLauncherVersion,
+      runtimeVersion: runtime?.version,
+      runtimePath: runtime?.runtimePath,
+      launcherVersion: launcher.launcherVersion,
+      launcherPath: launcher.launcherPath,
+      launcherSize: launcher.launcherSize,
+      launcherSha256: launcher.launcherSha256,
+      releaseNotesUrl: launcher.releaseNotesUrl,
+    }
+  }
+  return runtime
+}
+
 export function parseCliArguments(argv) {
   const [command, ...rest] = argv
-  if (command !== 'check' && command !== 'prepare') {
-    fail('CLI_INVALID', 'command must be check or prepare')
+  const commands = new Set(['check', 'prepare', 'check-bundle', 'prepare-bundle'])
+  if (!commands.has(command)) {
+    fail('CLI_INVALID', 'command must be check, prepare, check-bundle, or prepare-bundle')
   }
   const values = new Map()
   let testMode = false
@@ -725,7 +1121,15 @@ export function parseCliArguments(argv) {
       testMode = true
       continue
     }
-    if (!['--manifest', '--data-root', '--current-version'].includes(argument)) {
+    if (
+      ![
+        '--manifest',
+        '--launcher-manifest',
+        '--data-root',
+        '--current-version',
+        '--current-launcher-version',
+      ].includes(argument)
+    ) {
       fail('CLI_INVALID', `unknown argument: ${argument}`)
     }
     if (values.has(argument)) fail('CLI_INVALID', `${argument} was provided more than once`)
@@ -737,11 +1141,21 @@ export function parseCliArguments(argv) {
   for (const required of ['--manifest', '--data-root', '--current-version']) {
     if (!values.has(required)) fail('CLI_INVALID', `${required} is required`)
   }
+  const bundleCommand = command === 'check-bundle' || command === 'prepare-bundle'
+  if (bundleCommand) {
+    for (const required of ['--launcher-manifest', '--current-launcher-version']) {
+      if (!values.has(required)) fail('CLI_INVALID', `${required} is required`)
+    }
+  } else if (values.has('--launcher-manifest') || values.has('--current-launcher-version')) {
+    fail('CLI_INVALID', 'launcher manifest arguments are only valid for bundle commands')
+  }
   return {
     command,
     manifestUrl: values.get('--manifest'),
+    launcherManifestUrl: values.get('--launcher-manifest'),
     dataRoot: assertSafeDataRoot(values.get('--data-root')),
     currentVersion: values.get('--current-version'),
+    currentLauncherVersion: values.get('--current-launcher-version'),
     testMode,
   }
 }
@@ -752,20 +1166,31 @@ function publicResult(command, result) {
     command,
     status: result.status,
     currentVersion: result.currentVersion,
+    currentLauncherVersion: result.currentLauncherVersion,
     version: result.version,
     minimumLauncherVersion: result.minimumLauncherVersion,
     size: result.size,
     sha256: result.sha256,
     releaseNotesUrl: result.releaseNotesUrl,
     runtimePath: result.runtimePath,
+    runtimeVersion: result.runtimeVersion,
+    runtimeSize: result.runtimeSize,
+    runtimeSha256: result.runtimeSha256,
+    runtimeUpdateAvailable: result.runtimeUpdateAvailable,
+    launcherVersion: result.launcherVersion,
+    launcherPath: result.launcherPath,
+    launcherSize: result.launcherSize,
+    launcherSha256: result.launcherSha256,
+    launcherUpdateAvailable: result.launcherUpdateAvailable,
     files: result.files,
   }
 }
 
 function publicError(command, error) {
+  const validCommands = new Set(['check', 'prepare', 'check-bundle', 'prepare-bundle'])
   return {
     ok: false,
-    command: command === 'check' || command === 'prepare' ? command : null,
+    command: validCommands.has(command) ? command : null,
     error: {
       code: error instanceof UpdaterError ? error.code : 'UNEXPECTED_ERROR',
       message: error instanceof Error ? error.message : String(error),
@@ -778,10 +1203,23 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     const options = parseCliArguments(argv)
     command = options.command
-    const result =
-      command === 'check'
-        ? await checkForUpdate(options)
-        : await prepareRuntime(options)
+    let result
+    switch (command) {
+      case 'check':
+        result = await checkForUpdate(options)
+        break
+      case 'prepare':
+        result = await prepareRuntime(options)
+        break
+      case 'check-bundle':
+        result = await checkForBundle(options)
+        break
+      case 'prepare-bundle':
+        result = await prepareBundle(options)
+        break
+      default:
+        fail('CLI_INVALID', `unsupported command: ${command}`)
+    }
     process.stdout.write(`${JSON.stringify(publicResult(command, result))}\n`)
     return 0
   } catch (error) {

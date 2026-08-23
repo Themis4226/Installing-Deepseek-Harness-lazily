@@ -22,9 +22,17 @@ test('package declares a web client and the launcher overlay mounts it', async (
 test('client bundle registers one additive General-settings row', async () => {
   const source = await readFile(path.join(packageRoot, 'lib', 'client.js'), 'utf8')
   let descriptor
+  const messages = []
   const context = {
     window: { __ModuleLoader__: { load(value) { descriptor = value } } },
-    globalThis: {},
+    globalThis: {
+      chrome: {
+        webview: {
+          addEventListener() {},
+          postMessage(value) { messages.push(value) },
+        },
+      },
+    },
     Set,
     JSON,
   }
@@ -60,12 +68,54 @@ test('client bundle registers one additive General-settings row', async () => {
   }
   plugin.apply(ctx)
 
+  assert.deepEqual(messages, ['dsh-launcher:v1:hello'])
   assert.deepEqual(injected, ['settings.general.item'])
   assert.equal(registered.length, 1)
   assert.equal(registered[0].options.name, 'settings.general.item')
   assert.equal(registered[0].options.id, 'launcher-update')
   assert.equal(registered[0].options.order, 100)
   assert.equal(typeof registered[0].component, 'function')
+})
+
+test('client sends the health hello without mounting or opening the settings row', async () => {
+  const source = await readFile(path.join(packageRoot, 'lib', 'client.js'), 'utf8')
+  let descriptor
+  const messages = []
+  const context = {
+    window: { __ModuleLoader__: { load(value) { descriptor = value } } },
+    globalThis: {
+      chrome: {
+        webview: {
+          addEventListener() {},
+          postMessage(value) { messages.push(value) },
+        },
+      },
+    },
+    Set,
+    JSON,
+  }
+  vm.runInNewContext(source, context, { filename: 'client.js' })
+  const React = {
+    createElement() { throw new Error('settings row must not render') },
+    useEffect() { throw new Error('settings row must not mount') },
+    useRef() { throw new Error('settings row must not mount') },
+    useState() { throw new Error('settings row must not mount') },
+  }
+  const plugin = descriptor.factory((id) => {
+    if (id === 'react') return React
+    throw new Error(`unexpected client dependency: ${id}`)
+  })
+  const ctx = {
+    effect(callback) { callback() },
+    locale: { register() { return () => {} } },
+    slots: {
+      inject() {},
+    },
+  }
+
+  plugin.apply(ctx)
+
+  assert.deepEqual(messages, ['dsh-launcher:v1:hello'])
 })
 
 test('browser half exposes only handshake and check messages', async () => {

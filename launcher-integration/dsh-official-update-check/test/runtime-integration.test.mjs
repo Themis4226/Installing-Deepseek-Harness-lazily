@@ -6,22 +6,18 @@ import { spawn } from 'node:child_process'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 
-const workspaceRoot = path.resolve(import.meta.dirname, '..', '..')
-const launcherSourcePath = path.join(workspaceRoot, 'launcher', 'DeepSeekHarnessLauncher.cpp')
-const integrationRoot = path.join(
-  workspaceRoot,
-  'launcher-integration',
-  'dsh-launcher-update-ui',
-)
-const overlayPath = path.join(workspaceRoot, 'launcher-integration', 'cordis.patch.yml')
-const shutdownToken = '__DSH_LAUNCHER_SHUTDOWN__\n'
+const packageRoot = path.resolve(import.meta.dirname, '..')
+const repositoryRoot = path.resolve(packageRoot, '..', '..')
+const overlayPath = path.join(packageRoot, 'cordis.patch.yml')
+const packageName = '@themis4226/dsh-official-update-check'
+const shutdownToken = '__DSH_OFFICIAL_UPDATE_TEST_SHUTDOWN__\n'
 
 async function findDshEntry() {
   const relative = path.join('node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
   const candidates = [
     process.env.DSH_TEST_ENTRY,
-    path.join(workspaceRoot, relative),
-    path.resolve(workspaceRoot, '..', '..', relative),
+    path.join(repositoryRoot, relative),
+    path.resolve(repositoryRoot, '..', '..', relative),
   ].filter(Boolean)
   for (const candidate of candidates) {
     try {
@@ -43,27 +39,35 @@ function waitForExit(child, timeoutMs) {
   })
 }
 
-test('real DSH serves the launcher client while its runtime tree stays untouched', { timeout: 120_000 }, async () => {
+test('real DSH serves the maintainer-only client from its isolated bundle', { timeout: 120_000 }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-official-update-check-'))
   const dshEntry = await findDshEntry()
-  const runtimeCopy = path.join(
-    workspaceRoot,
-    'node_modules',
-    '@themis4226',
-    'dsh-launcher-update-ui',
-  )
-  await assert.rejects(readFile(path.join(runtimeCopy, 'package.json')), { code: 'ENOENT' })
-
-  const launcherSource = await readFile(launcherSourcePath, 'utf8')
-  const match = launcherSource.match(
-    /constexpr char kShutdownBridge\[\] = R"JS\(([\s\S]*?)\)JS";/,
-  )
-  assert.notEqual(match, null, 'embedded preload source was not found')
-
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-launcher-runtime-integration-'))
   let child
   try {
     const preloadPath = path.join(tempRoot, 'preload.mjs')
-    await writeFile(preloadPath, match[1], 'utf8')
+    const packageUrl = pathToFileURL(path.join(packageRoot, 'lib', 'index.js')).href
+    const manifestUrl = pathToFileURL(path.join(packageRoot, 'package.json')).href
+    await writeFile(preloadPath, `
+      import { registerHooks } from 'node:module'
+      registerHooks({
+        resolve(specifier, context, nextResolve) {
+          if (specifier === ${JSON.stringify(packageName)}) {
+            return { url: ${JSON.stringify(packageUrl)}, shortCircuit: true }
+          }
+          if (specifier === ${JSON.stringify(`${packageName}/package.json`)}) {
+            return { url: ${JSON.stringify(manifestUrl)}, shortCircuit: true }
+          }
+          return nextResolve(specifier, context)
+        },
+      })
+      let input = ''
+      process.stdin.setEncoding('utf8')
+      process.stdin.on('data', (chunk) => {
+        input += chunk
+        if (input.includes(${JSON.stringify(shutdownToken.trim())})) process.emit('SIGTERM')
+      })
+    `, 'utf8')
+
     child = spawn(
       process.execPath,
       [
@@ -80,11 +84,7 @@ test('real DSH serves the launcher client while its runtime tree stays untouched
       ],
       {
         cwd: tempRoot,
-        env: {
-          ...process.env,
-          DSH_HOME: path.join(tempRoot, '.dsh'),
-          DSH_LAUNCHER_INTEGRATION_ROOT: integrationRoot,
-        },
+        env: { ...process.env, DSH_HOME: path.join(tempRoot, '.dsh') },
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       },
@@ -116,17 +116,15 @@ test('real DSH serves the launcher client while its runtime tree stays untouched
     const indexResponse = await fetch(`http://127.0.0.1:${port}/`)
     assert.equal(indexResponse.status, 200)
     const html = await indexResponse.text()
-    assert.match(html, /@themis4226\/dsh-launcher-update-ui/)
+    assert.match(html, /@themis4226\/dsh-official-update-check/)
 
     const clientResponse = await fetch(
-      `http://127.0.0.1:${port}/plugins/@themis4226/dsh-launcher-update-ui/client.js`,
+      `http://127.0.0.1:${port}/plugins/@themis4226/dsh-official-update-check/client.js`,
     )
     assert.equal(clientResponse.status, 200)
     const servedClient = await clientResponse.text()
-    const sourceClient = await readFile(path.join(integrationRoot, 'lib', 'client.js'), 'utf8')
+    const sourceClient = await readFile(path.join(packageRoot, 'lib', 'client.js'), 'utf8')
     assert.equal(servedClient, sourceClient)
-
-    await assert.rejects(readFile(path.join(runtimeCopy, 'package.json')), { code: 'ENOENT' })
   } finally {
     if (child !== undefined && child.exitCode === null) {
       child.stdin.write(shutdownToken)
