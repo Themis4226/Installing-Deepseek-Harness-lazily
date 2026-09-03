@@ -1,5 +1,7 @@
 # DSH Desktop Launcher 1.4.0（Windows x64）
 
+> 一款基于DeepSeek Harness(DSH)的启动器
+
 这是一个面向 Windows 的**非官方社区启动器**，用于在本机窗口中运行 DeepSeek Harness（`dsh`）。
 它不隶属于 DeepSeek，也不代表 DeepSeek 对本项目的认可、审核或背书。
 
