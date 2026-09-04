@@ -190,6 +190,12 @@ explicit integration allowlist and excludes this bundle.
 
 ## Compatibility gates and old launchers
 
+DSH `0.1.2-rc.1` requires launcher **1.4.1** because the upstream index now exchanges its process launch token
+for an HttpOnly browser cookie. The launcher reads only complete loopback ready lines, navigates the exact
+validated startup URL, and accepts the same-navigation redirect to the clean local root for health checks.
+It never disables upstream authentication. Startup tokens are redacted from launcher logs.
+Publish the 1.4.1 EXE and this runtime as a compatibility pair; do not lower this runtime's launcher gate.
+
 `runtime.minimumLauncherVersion` remains the compatibility gate. A 1.4.0-or-newer client may satisfy it with the
 validated candidate declared by `launcher-update.json` and install both candidates as one transaction. If the
 launcher feed does not provide a sufficiently new candidate, the client reports an incomplete release and changes

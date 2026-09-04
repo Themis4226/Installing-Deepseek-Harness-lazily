@@ -1,27 +1,42 @@
-# DSH Desktop Launcher 1.4.0（Windows x64）
+# DSH Desktop Launcher 1.4.1（Windows x64）
 
 > 一款基于DeepSeek Harness(DSH)的启动器
 
 这是一个面向 Windows 的**非官方社区启动器**，用于在本机窗口中运行 DeepSeek Harness（`dsh`）。
 它不隶属于 DeepSeek，也不代表 DeepSeek 对本项目的认可、审核或背书。
 
-> 下载 1.4.0 完整包时，请从本仓库的
+> 下载 1.4.1 完整包时，请从本仓库的
 > [Releases](https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases) 下载。GitHub 自动生成的
 > “Source code (zip)” **不是可运行安装包**。
 
 ## 第一次安装或从旧版本升级
 
-1. 在 Releases 中下载标为 **Full package / Windows x64** 的 1.4.0 完整 ZIP，并对照发布页公布的
+1. 在 Releases 中下载标为 **Full package / Windows x64** 的 1.4.1 完整 ZIP，并对照发布页公布的
    SHA-256；不要只下载或复制 EXE。
 2. 完整解压到一个较短、可写的新目录，例如 `D:\Apps\DSH-Launcher`。不要覆盖仍在运行的旧目录。
 3. 关闭旧版窗口后双击 `DeepSeek Harness.exe`。确认工作区、模型配置和基本对话都正常后，再保留或移除旧程序目录。
 
 不需要先卸载旧版，也不要删除 `%USERPROFILE%\.dsh`。1.3.0 及更早版本没有完整的启动器自替换能力，
-因此升级到首个 1.4.0 版本时都必须手动下载并完整解压一次。完成这次过渡后，1.4.0 及后续兼容版本
+因此升级到 1.4.1 时必须手动下载并完整解压一次。已经使用 1.4.0 的用户可以直接在程序内成对更新。
+完成这次过渡后，1.4.0 及后续兼容版本
 才可以在程序内更新启动器 EXE。完整包包含启动器和初始 DSH 运行时，但不包含 Node.js。不要把 EXE
 单独移动到桌面；需要桌面入口时，请创建快捷方式。
 
-## 1.4.0 的程序内成对更新
+## 1.4.1：适配 DSH 0.1.2-rc.1
+
+初始运行时升级为官方 npm 包 `@deepseek-ai/dsh@0.1.2-rc.1`，仍属于开发者预览版。
+新版官方首页需要认证；1.4.1 使用 DSH 输出的本机启动链接，由官方服务交换 HttpOnly Cookie 并跳转
+回首页，不关闭认证，也不把启动 token 写入日志。启动链接只接受固定的 `127.0.0.1` 来源。
+
+此运行时要求启动器至少为 **1.4.1**，不能单独交给 1.4.0 或更早启动器运行。1.4.0 用户的
+“软件更新”会一起下载新版 EXE 和运行时，验证后重启；旧 EXE 和旧运行时保留用于失败回退。
+图标不变。
+
+升级前建议备份 DSH 用户目录。官方本次移除了可选的 SQLite 会话持久化后端；使用该旧后端的用户
+应先用旧版导出会话。第三方插件也可能需要适配；详见
+[官方发布说明](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.2-rc.1)。
+
+## 从 1.4.0 起的程序内成对更新
 
 1.4.0 保留 DSH **设置 → 通用设置 → 软件更新 → 检查更新** 的原入口。该设置行使用 DSH 提供的
 通用设置扩展位，外观、主题和交互与同页设置保持一致。启动器也会在正常启动后进行一次静默检查；
@@ -53,7 +68,7 @@ runtime启动失败时，助手会恢复旧 EXE和旧 runtime状态并重新打�
 材料不完整时会停止恢复并报错，不会猜测性覆盖文件。
 
 1.4.0 将“软件更新”设置集成作为 Windows资源嵌入 EXE，并在启动时按启动器版本释放到
-`%LOCALAPPDATA%\DSH Desktop Launcher\data\launcher-integration\1.4.0\`。它通过精确模块映射加载，
+`%LOCALAPPDATA%\DSH Desktop Launcher\data\launcher-integration\<启动器版本>\`。它通过精确模块映射加载，
 不会写入或修改官方 DSH runtime；更新 EXE时也会随新版启动器一起更换，不再依赖旁置文件同步。
 
 仓库还包含一个维护者专用的 **官方更新检查** 插件。它只查询 DeepSeek官方 npm上的
@@ -91,8 +106,8 @@ runtime切换或回滚能力。正常启动继续使用 `--no-open`，不会额�
 
 ## 版本与官方边界
 
-- 启动器：1.4.0（本社区项目维护）
-- 初始 DSH：固定为 `@deepseek-ai/dsh@0.1.1-rc.2`（上游 npm 包）
+- 启动器：1.4.1（本社区项目维护）
+- 初始 DSH：固定为 `@deepseek-ai/dsh@0.1.2-rc.1`（上游 npm 包）
 - 更新清单、打包脚本和桌面壳：由本仓库维护，不是 DeepSeek 官方更新渠道
 - 服务：仅绑定动态分配的 `127.0.0.1` 本机端口
 

@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -26,6 +27,7 @@
 #include "WebView2.h"
 #include "resource.h"
 #include "self_update.h"
+#include "ready_url.h"
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -34,7 +36,7 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"DeepSeekHarnessDesktopLauncherWindow";
 constexpr wchar_t kWindowTitle[] = L"DeepSeek Harness";
-constexpr wchar_t kLauncherVersion[] = L"1.4.0";
+constexpr wchar_t kLauncherVersion[] = L"1.4.1";
 constexpr wchar_t kMutexName[] = L"Local\\DeepSeekHarnessDesktopLauncher-4C0701B1-1DF1-4B93-8143-E86183102144";
 constexpr wchar_t kAppUserModelId[] = L"DeepSeekAI.DeepSeekHarness.DesktopLauncher";
 constexpr wchar_t kDshRelativePath[] = L"node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
@@ -47,7 +49,7 @@ constexpr wchar_t kLogRelativePath[] = L"logs\\dsh.log";
 constexpr wchar_t kUpdaterRelativePath[] = L"data\\dsh-runtime-updater.mjs";
 constexpr wchar_t kRuntimeStateRelativePath[] = L"updates\\state.txt";
 constexpr wchar_t kRuntimeVersionsRelativePath[] = L"runtimes";
-constexpr wchar_t kLauncherIntegrationDataRelativePath[] = L"data\\launcher-integration\\1.4.0";
+constexpr wchar_t kLauncherIntegrationDataRelativePath[] = L"data\\launcher-integration\\1.4.1";
 constexpr wchar_t kLauncherIntegrationRootEnvironmentVariable[] =
     L"DSH_LAUNCHER_INTEGRATION_ROOT";
 constexpr wchar_t kUpdateManifestUrl[] =
@@ -189,6 +191,11 @@ struct OutputReaderContext {
     uint64_t generation = 0;
 };
 
+struct ReadyMessage {
+    dsh::ReadyAddress address;
+    uint64_t generation = 0;
+};
+
 HINSTANCE g_instance = nullptr;
 HWND g_window = nullptr;
 HWND g_retryButton = nullptr;
@@ -215,6 +222,7 @@ std::wstring g_errorText;
 UiState g_uiState = UiState::Starting;
 ULONGLONG g_startTick = 0;
 unsigned short g_dshPort = 0;
+std::wstring g_dshLaunchUrl;
 bool g_webViewCreationStarted = false;
 bool g_webViewReady = false;
 bool g_navigationStarted = false;
@@ -1897,10 +1905,11 @@ void MaybeNavigate() {
         return;
     }
     g_navigationStarted = true;
-    const std::wstring url = L"http://127.0.0.1:" + std::to_wstring(g_dshPort) + L"/";
+    const std::wstring url = g_dshLaunchUrl;
     g_healthNavigationArmed = true;
     g_healthNavigationId = 0;
-    g_healthNavigationUrl = url;
+    // The official token exchange redirects to the clean root with an HttpOnly cookie.
+    g_healthNavigationUrl = L"http://127.0.0.1:" + std::to_wstring(g_dshPort) + L"/";
     g_healthRuntimeId = g_activeRuntimeId;
     const HRESULT result = g_webView->Navigate(url.c_str());
     if (FAILED(result)) {
@@ -2031,7 +2040,7 @@ void InitializeWebView() {
                                             if (!IsInternalUri(uri)) {
                                                 args->put_Cancel(TRUE);
                                                 OpenExternalUri(uri);
-                                            } else if (g_healthNavigationArmed && g_healthNavigationUrl == uri) {
+                                            } else if (g_healthNavigationArmed && g_dshLaunchUrl == uri) {
                                                 UINT64 navigationId = 0;
                                                 if (SUCCEEDED(args->get_NavigationId(&navigationId))) {
                                                     g_healthNavigationId = navigationId;
@@ -2164,32 +2173,6 @@ void CloseWebView() {
     g_webViewEnvironment.Reset();
 }
 
-bool ExtractReadyPort(std::string_view data, unsigned short& port) {
-    constexpr std::string_view marker = "dsh web: http://127.0.0.1:";
-    const size_t markerPosition = data.find(marker);
-    if (markerPosition == std::string_view::npos) {
-        return false;
-    }
-    const size_t numberStart = markerPosition + marker.size();
-    size_t numberEnd = numberStart;
-    while (numberEnd < data.size() && std::isdigit(static_cast<unsigned char>(data[numberEnd]))) {
-        ++numberEnd;
-    }
-    if (numberEnd == numberStart) {
-        return false;
-    }
-    try {
-        const unsigned long value = std::stoul(std::string(data.substr(numberStart, numberEnd - numberStart)));
-        if (value == 0 || value > 65535) {
-            return false;
-        }
-        port = static_cast<unsigned short>(value);
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
 DWORD WINAPI OutputReaderThread(void* parameter) {
     OutputReaderContext* context = static_cast<OutputReaderContext*>(parameter);
     const HANDLE output = context->output;
@@ -2207,27 +2190,45 @@ DWORD WINAPI OutputReaderThread(void* parameter) {
     std::string pending;
     pending.reserve(8192);
     bool readyPosted = false;
+    bool droppingLongLine = false;
+    const auto consumeLine = [&](const std::string& line) {
+        if (logFile != INVALID_HANDLE_VALUE) {
+            const std::string safeLine = dsh::RedactLaunchTokens(line);
+            DWORD bytesWritten = 0;
+            WriteFile(logFile, safeLine.data(), static_cast<DWORD>(safeLine.size()), &bytesWritten, nullptr);
+        }
+        dsh::ReadyAddress address;
+        if (!readyPosted && dsh::ParseReadyAddress(line, address)) {
+            auto* ready = new ReadyMessage{std::move(address), generation};
+            if (PostMessageW(g_window, kMessageDshReady, 0, reinterpret_cast<LPARAM>(ready))) {
+                readyPosted = true;
+            } else {
+                delete ready;
+            }
+        }
+    };
     char buffer[4096];
     DWORD bytesRead = 0;
     while (ReadFile(output, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead != 0) {
-        if (logFile != INVALID_HANDLE_VALUE) {
-            DWORD bytesWritten = 0;
-            WriteFile(logFile, buffer, bytesRead, &bytesWritten, nullptr);
+        pending.append(buffer, bytesRead);
+        size_t end = 0;
+        while ((end = pending.find('\n')) != std::string::npos) {
+            if (!droppingLongLine) consumeLine(pending.substr(0, end + 1));
+            droppingLongLine = false;
+            pending.erase(0, end + 1);
         }
-        if (!readyPosted) {
-            pending.append(buffer, bytesRead);
-            if (pending.size() > 65536) {
-                pending.erase(0, pending.size() - 32768);
-            }
-            unsigned short port = 0;
-            if (ExtractReadyPort(pending, port)) {
-                readyPosted = true;
-                PostMessageW(
-                    g_window,
-                    kMessageDshReady,
-                    static_cast<WPARAM>(port),
-                    static_cast<LPARAM>(generation));
-            }
+        if (pending.size() > 65536) {
+            if (!droppingLongLine) consumeLine("[launcher] oversized output line omitted\n");
+            droppingLongLine = true;
+            pending.clear();
+        }
+    }
+    if (!pending.empty() && !droppingLongLine) {
+        // Flush diagnostics only; an incomplete ready line must never trigger navigation.
+        if (logFile != INVALID_HANDLE_VALUE) {
+            const auto safeLine = dsh::RedactLaunchTokens(pending);
+            DWORD bytesWritten = 0;
+            WriteFile(logFile, safeLine.data(), static_cast<DWORD>(safeLine.size()), &bytesWritten, nullptr);
         }
     }
     if (logFile != INVALID_HANDLE_VALUE) {
@@ -2267,6 +2268,7 @@ void CloseDshHandles() {
     }
     g_dshProcessId = 0;
     g_dshPort = 0;
+    g_dshLaunchUrl.clear();
 }
 
 void StopDsh(bool graceful) {
@@ -2625,14 +2627,16 @@ LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             return 0;
         }
         break;
-    case kMessageDshReady:
+    case kMessageDshReady: {
+        std::unique_ptr<ReadyMessage> ready(reinterpret_cast<ReadyMessage*>(lParam));
         if (!g_shutdownStarted && g_dshProcess != nullptr &&
-            static_cast<uint64_t>(lParam) == g_dshGeneration &&
-            wParam > 0 && wParam <= 65535) {
-            g_dshPort = static_cast<unsigned short>(wParam);
+            ready && ready->generation == g_dshGeneration && ready->address.port > 0) {
+            g_dshPort = ready->address.port;
+            g_dshLaunchUrl.assign(ready->address.url.begin(), ready->address.url.end());
             MaybeNavigate();
         }
         return 0;
+    }
     case kMessageUpdateResult:
         HandleUpdateWorkerResult(reinterpret_cast<UpdateWorkerResult*>(lParam));
         return 0;

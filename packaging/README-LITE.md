@@ -1,7 +1,11 @@
-# DSH Desktop Launcher Lite 1.4.0（Windows x64）
+# DSH Desktop Launcher Lite 1.4.1（Windows x64）
 
 这是一个非官方的 DeepSeek Harness (`dsh`) Windows 图形启动器。它不隶属于 DeepSeek，亦不代表
 DeepSeek 对本启动器的认可或背书。
+
+1.4.1 随包提供官方 DSH `0.1.2-rc.1`，支持新版的认证启动链接，图标保持不变。
+1.4.0 用户可以通过“软件更新”成对更新 EXE 和运行时；更早版本请完整解压新版安装包。
+不要仅把新版运行时交给 1.4.0 或更早的 EXE 运行。
 
 ## 系统要求
 
@@ -52,16 +56,19 @@ runtime失败时会恢复旧 EXE和旧 runtime状态；其他 Node.js程序不�
 受限预加载桥映射；它不会复制或写入随包或已下载的 DSH runtime。仓库中的维护者专用
 “官方更新检查”插件只检查 DeepSeek官方 npm版本，不安装或发布更新，并且不会进入本 Lite包。
 
-1.3.0 及更早版本升级到首个 1.4.0 时，都需要手动下载并完整解压本包一次。此后 1.4.0及兼容后续版
+1.3.0 及更早版本升级到 1.4.1 时，都需要手动下载并完整解压本包一次。此后 1.4.0及兼容后续版
 才具备完整的启动器自更新能力。发布 ZIP不包含制作者的缓存、日志、账号信息或 `.dsh`配置。
 
 ## 版本与限制
 
-- 启动器：`1.4.0.0`
+- 启动器：`1.4.1.0`
 - 设置集成：`@themis4226/dsh-launcher-update-ui@1.0.0`
-- 初始 DSH：固定为 `@deepseek-ai/dsh@0.1.1-rc.2`
+- 初始 DSH：固定为 `@deepseek-ai/dsh@0.1.2-rc.1`
 - 仅绑定动态分配的 `127.0.0.1` 本机端口。
 - DSH 仍处于 developer preview，升级前需要重新验证兼容性。
+
+建议先备份用户目录。官方已移除可选的 SQLite 会话持久化后端；该后端的旧用户应先用旧版导出。
+第三方插件可能需要适配，详见官方 `dsh-v0.1.2-rc.1` 发布说明。
 
 如果显示“找不到兼容的 Node.js”，请安装 Node.js 24 LTS x64，或让 `NODE_EXE` 指向兼容的
 `node.exe`。如果显示 WebView2 错误，请从微软官方渠道安装 Evergreen WebView2 Runtime。
