@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.4.0',
-    [string]$DshVersion = '0.1.1-rc.2',
+    [string]$Version = '1.4.1',
+    [string]$DshVersion = '0.1.2-rc.1',
     [string]$RuntimeArchive,
     [string]$NodeExecutable = 'node.exe'
 )
@@ -79,6 +79,7 @@ $launcherBuildInputs = @(
     (Join-Path $workspace 'launcher\updater.mjs'),
     (Join-Path $workspace 'launcher\self_update.cpp'),
     (Join-Path $workspace 'launcher\self_update.h')
+    (Join-Path $workspace 'launcher\ready_url.h')
 ) + $integrationRequired
 $newestLauncherInput = $launcherBuildInputs | Get-Item | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
 $exeItem = Get-Item -LiteralPath $exePath

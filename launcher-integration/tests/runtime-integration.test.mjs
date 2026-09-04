@@ -5,6 +5,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
+import { readyUrl, authenticatedIndex, clientUrl } from './authenticated-fetch.mjs'
 
 const workspaceRoot = path.resolve(import.meta.dirname, '..', '..')
 const launcherSourcePath = path.join(workspaceRoot, 'launcher', 'DeepSeekHarnessLauncher.cpp')
@@ -91,14 +92,14 @@ test('real DSH serves the launcher client while its runtime tree stays untouched
     )
 
     let output = ''
-    const port = await new Promise((resolve, reject) => {
+    const launchUrl = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error(`DSH startup timed out:\n${output}`)), 90_000)
       const inspect = (chunk) => {
         output += chunk.toString('utf8')
-        const ready = output.match(/dsh web: http:\/\/127\.0\.0\.1:(\d+)/)
-        if (ready !== null) {
+        const ready = readyUrl(output)
+        if (ready !== undefined) {
           clearTimeout(timeout)
-          resolve(Number(ready[1]))
+          resolve(ready)
         }
       }
       child.stdout.on('data', inspect)
@@ -113,18 +114,19 @@ test('real DSH serves the launcher client while its runtime tree stays untouched
       })
     })
 
-    const indexResponse = await fetch(`http://127.0.0.1:${port}/`)
+    const { response: indexResponse, headers, origin } = await authenticatedIndex(launchUrl)
     assert.equal(indexResponse.status, 200)
     const html = await indexResponse.text()
     assert.match(html, /@themis4226\/dsh-launcher-update-ui/)
 
     const clientResponse = await fetch(
-      `http://127.0.0.1:${port}/plugins/@themis4226/dsh-launcher-update-ui/client.js`,
+      new URL(clientUrl(html, '@themis4226/dsh-launcher-update-ui'), origin),
+      { headers },
     )
     assert.equal(clientResponse.status, 200)
     const servedClient = await clientResponse.text()
     const sourceClient = await readFile(path.join(integrationRoot, 'lib', 'client.js'), 'utf8')
-    assert.equal(servedClient, sourceClient)
+    assert.ok(servedClient.includes(sourceClient.trim()), 'served bundle must contain the unmodified integration')
 
     await assert.rejects(readFile(path.join(runtimeCopy, 'package.json')), { code: 'ENOENT' })
   } finally {
