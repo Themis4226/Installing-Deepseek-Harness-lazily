@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-desktop-launcher",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "description": "A native Windows WebView2 launcher for DeepSeek Harness.",
   "license": "UNLICENSED",

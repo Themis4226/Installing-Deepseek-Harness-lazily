@@ -15,6 +15,7 @@ test('package declares a web client and the launcher overlay mounts it', async (
   assert.equal(manifest.name, '@themis4226/dsh-launcher-update-ui')
   assert.equal(manifest.dsh.client.platform, 'web')
   assert.equal(manifest.exports['./client'], './lib/client.js')
+  assert.match(overlay, /id: plugin-package-inventory-deepseek\s+disabled: true/)
   assert.match(overlay, /id: launcher-update-ui/)
   assert.match(overlay, /name: '@themis4226\/dsh-launcher-update-ui'/)
 })

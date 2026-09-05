@@ -1,26 +1,37 @@
-# DSH Desktop Launcher 1.4.1（Windows x64）
+# DSH Desktop Launcher 1.4.2（Windows x64）
 
 > 一款基于DeepSeek Harness(DSH)的启动器
 
 这是一个面向 Windows 的**非官方社区启动器**，用于在本机窗口中运行 DeepSeek Harness（`dsh`）。
 它不隶属于 DeepSeek，也不代表 DeepSeek 对本项目的认可、审核或背书。
 
-> 下载 1.4.1 完整包时，请从本仓库的
+> 下载 1.4.2 完整包时，请从本仓库的
 > [Releases](https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases) 下载。GitHub 自动生成的
 > “Source code (zip)” **不是可运行安装包**。
 
 ## 第一次安装或从旧版本升级
 
-1. 在 Releases 中下载标为 **Full package / Windows x64** 的 1.4.1 完整 ZIP，并对照发布页公布的
+1. 在 Releases 中下载标为 **Full package / Windows x64** 的 1.4.2 完整 ZIP，并对照发布页公布的
    SHA-256；不要只下载或复制 EXE。
 2. 完整解压到一个较短、可写的新目录，例如 `D:\Apps\DSH-Launcher`。不要覆盖仍在运行的旧目录。
 3. 关闭旧版窗口后双击 `DeepSeek Harness.exe`。确认工作区、模型配置和基本对话都正常后，再保留或移除旧程序目录。
 
 不需要先卸载旧版，也不要删除 `%USERPROFILE%\.dsh`。1.3.0 及更早版本没有完整的启动器自替换能力，
-因此升级到 1.4.1 时必须手动下载并完整解压一次。已经使用 1.4.0 的用户可以直接在程序内成对更新。
+因此首次跨过该版本门槛时必须手动下载并完整解压一次。已经使用 1.4.0 或更高版本的用户可以直接在程序内更新。
 完成这次过渡后，1.4.0 及后续兼容版本
 才可以在程序内更新启动器 EXE。完整包包含启动器和初始 DSH 运行时，但不包含 Node.js。不要把 EXE
 单独移动到桌面；需要桌面入口时，请创建快捷方式。
+
+## 1.4.2：修复 DeepSeek 请求扩展准备失败
+
+1.4.2 在启动器内置的 Web 配置叠加层中停用了上游
+`plugin-package-inventory-deepseek` 诊断扩展，规避失效插件链接导致的
+`DeepSeek request extension preparation failed` / `REQUEST_EXTENSION`。该扩展只负责在请求中附加插件包
+清单，不负责加载或执行插件；实际插件、模型、工具、会话和推理强度保持可用。
+
+本版只更新启动器，继续使用未经改动的官方 `@deepseek-ai/dsh@0.1.2-rc.1` runtime。已有 1.4.0/1.4.1
+用户可通过“软件更新”下载约 1 MiB 的新版 EXE，无需重新下载 runtime；首次安装仍下载完整 ZIP。
+图标保持不变。
 
 ## 1.4.1：适配 DSH 0.1.2-rc.1
 
@@ -106,7 +117,7 @@ runtime切换或回滚能力。正常启动继续使用 `--no-open`，不会额�
 
 ## 版本与官方边界
 
-- 启动器：1.4.1（本社区项目维护）
+- 启动器：1.4.2（本社区项目维护）
 - 初始 DSH：固定为 `@deepseek-ai/dsh@0.1.2-rc.1`（上游 npm 包）
 - 更新清单、打包脚本和桌面壳：由本仓库维护，不是 DeepSeek 官方更新渠道
 - 服务：仅绑定动态分配的 `127.0.0.1` 本机端口
