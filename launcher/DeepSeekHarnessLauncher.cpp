@@ -36,7 +36,7 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"DeepSeekHarnessDesktopLauncherWindow";
 constexpr wchar_t kWindowTitle[] = L"DeepSeek Harness";
-constexpr wchar_t kLauncherVersion[] = L"1.4.1";
+constexpr wchar_t kLauncherVersion[] = L"1.4.2";
 constexpr wchar_t kMutexName[] = L"Local\\DeepSeekHarnessDesktopLauncher-4C0701B1-1DF1-4B93-8143-E86183102144";
 constexpr wchar_t kAppUserModelId[] = L"DeepSeekAI.DeepSeekHarness.DesktopLauncher";
 constexpr wchar_t kDshRelativePath[] = L"node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
@@ -49,7 +49,7 @@ constexpr wchar_t kLogRelativePath[] = L"logs\\dsh.log";
 constexpr wchar_t kUpdaterRelativePath[] = L"data\\dsh-runtime-updater.mjs";
 constexpr wchar_t kRuntimeStateRelativePath[] = L"updates\\state.txt";
 constexpr wchar_t kRuntimeVersionsRelativePath[] = L"runtimes";
-constexpr wchar_t kLauncherIntegrationDataRelativePath[] = L"data\\launcher-integration\\1.4.1";
+constexpr wchar_t kLauncherIntegrationDataRelativePath[] = L"data\\launcher-integration\\1.4.2";
 constexpr wchar_t kLauncherIntegrationRootEnvironmentVariable[] =
     L"DSH_LAUNCHER_INTEGRATION_ROOT";
 constexpr wchar_t kUpdateManifestUrl[] =
