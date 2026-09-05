@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "channel": "preview",
-  "publishedAt": "2026-09-04T10:44:04Z",
-  "minimumLauncherVersion": "1.4.1",
+  "publishedAt": "2026-09-05T11:28:58Z",
+  "minimumLauncherVersion": "1.4.2",
   "runtime": {
     "version": "0.1.2-rc.1",
     "platform": "win32",
@@ -14,5 +14,5 @@
       "sha256": "80f0caf99157cada80c1d9f08eb514f5753cf10ae0d0190332f743393c84238f"
     }
   },
-  "releaseNotesUrl": "https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases/tag/v1.4.1"
+  "releaseNotesUrl": "https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases/tag/v1.4.2"
 }
