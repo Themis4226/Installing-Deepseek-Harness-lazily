@@ -1,8 +1,8 @@
 {
   "product": "DSH Desktop Launcher Lite",
-  "launcherVersion": "1.4.2.0",
+  "launcherVersion": "1.4.3.0",
   "dshPackage": "@deepseek-ai/dsh",
-  "dshVersion": "0.1.2-rc.1",
+  "dshVersion": "0.1.5-rc.1",
   "launcherIntegration": "@themis4226/dsh-launcher-update-ui@1.0.0",
   "platform": "win32",
   "architecture": "x64",
@@ -15,5 +15,5 @@
     "runtimeFormat": "dsh-runtime-zip-v1",
     "launcherFormat": "portable-exe-v1"
   },
-  "generatedUtc": "2026-09-05T11:15:20Z"
+  "generatedUtc": "2026-09-11T03:19:17Z"
 }

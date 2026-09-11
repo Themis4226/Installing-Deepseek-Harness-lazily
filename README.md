@@ -1,17 +1,17 @@
-# DSH Desktop Launcher 1.4.2（Windows x64）
+# DSH Desktop Launcher 1.4.3（Windows x64）
 
 > 一款基于DeepSeek Harness(DSH)的启动器
 
 这是一个面向 Windows 的**非官方社区启动器**，用于在本机窗口中运行 DeepSeek Harness（`dsh`）。
 它不隶属于 DeepSeek，也不代表 DeepSeek 对本项目的认可、审核或背书。
 
-> 下载 1.4.2 完整包时，请从本仓库的
+> 下载 1.4.3 完整包时，请从本仓库的
 > [Releases](https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases) 下载。GitHub 自动生成的
 > “Source code (zip)” **不是可运行安装包**。
 
 ## 第一次安装或从旧版本升级
 
-1. 在 Releases 中下载标为 **Full package / Windows x64** 的 1.4.2 完整 ZIP，并对照发布页公布的
+1. 在 Releases 中下载标为 **Full package / Windows x64** 的 1.4.3 完整 ZIP，并对照发布页公布的
    SHA-256；不要只下载或复制 EXE。
 2. 完整解压到一个较短、可写的新目录，例如 `D:\Apps\DSH-Launcher`。不要覆盖仍在运行的旧目录。
 3. 关闭旧版窗口后双击 `DeepSeek Harness.exe`。确认工作区、模型配置和基本对话都正常后，再保留或移除旧程序目录。
@@ -21,6 +21,17 @@
 完成这次过渡后，1.4.0 及后续兼容版本
 才可以在程序内更新启动器 EXE。完整包包含启动器和初始 DSH 运行时，但不包含 Node.js。不要把 EXE
 单独移动到桌面；需要桌面入口时，请创建快捷方式。
+
+## 1.4.3：升级官方 DSH 0.1.5-rc.1
+
+1.4.3 随包提供未经修改的官方 npm 运行时 `@deepseek-ai/dsh@0.1.5-rc.1`。该版本新增
+DeepSeek-V41-Flash、通用文件上传、可继续对话的子代理队列、右侧多标签文件预览和代理环境变量支持，
+并改善长会话性能及 Windows 子进程清理。详细内容见
+[DeepSeek 官方发布说明](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.5-rc.1)。
+
+本次上游会话格式升级为 V3。官方迁移会保留旧日志，但升级后产生的会话不能由旧 DSH 读取；更新前请
+备份 `%USERPROFILE%\.dsh`。启动器的“软件更新”和维护者使用的“官方更新检查”集成已针对新运行时
+重新验证，图标保持不变。
 
 ## 1.4.2：修复 DeepSeek 请求扩展准备失败
 
@@ -117,8 +128,8 @@ runtime切换或回滚能力。正常启动继续使用 `--no-open`，不会额�
 
 ## 版本与官方边界
 
-- 启动器：1.4.2（本社区项目维护）
-- 初始 DSH：固定为 `@deepseek-ai/dsh@0.1.2-rc.1`（上游 npm 包）
+- 启动器：1.4.3（本社区项目维护）
+- 初始 DSH：固定为 `@deepseek-ai/dsh@0.1.5-rc.1`（上游 npm 包）
 - 更新清单、打包脚本和桌面壳：由本仓库维护，不是 DeepSeek 官方更新渠道
 - 服务：仅绑定动态分配的 `127.0.0.1` 本机端口
 
