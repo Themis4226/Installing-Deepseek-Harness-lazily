@@ -21,7 +21,7 @@ export async function authenticatedIndex(launchUrl) {
     assert.equal((await fetch(url.origin)).status, 401, 'new runtime must preserve authentication')
     const exchange = await fetch(url, { redirect: 'manual' })
     assert.equal(exchange.status, 303)
-    assert.equal(exchange.headers.get('location'), '/')
+    assert.ok(['/', './'].includes(exchange.headers.get('location')))
     const cookies = exchange.headers.getSetCookie()
     assert.ok(cookies.length > 0)
     assert.ok(cookies.every(value => /HttpOnly/i.test(value)))

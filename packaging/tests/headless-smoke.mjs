@@ -34,8 +34,23 @@ const server = createServer(async (req, res) => {
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const port = server.address().port
-await writeFile(path.join(dshHome, 'settings.yaml'), `llm-pi-ai:\n  providers:\n    launcher-smoke:\n      api: openai-completions\n      baseURL: http://127.0.0.1:${port}/v1\n      apiKeyEnv: DSH_SMOKE_KEY\n      models:\n        - id: smoke-model\n          contextWindow: 32768\nagent-default-model:\n  provider: launcher-smoke\n  model: smoke-model\n`)
-await writeFile(path.join(root, 'test.patch.yml'), '- id: session-title-llm\n  disabled: true\n')
+await writeFile(path.join(root, 'test.patch.yml'), `- id: session-title-llm
+  disabled: true
+- id: llm-pi-ai
+  config:
+    providers:
+      launcher-smoke:
+        api: openai-completions
+        baseURL: http://127.0.0.1:${port}/v1
+        apiKeyEnv: DSH_SMOKE_KEY
+        models:
+          - id: smoke-model
+            contextWindow: 32768
+- id: agent-default-model
+  config:
+    provider: launcher-smoke
+    model: smoke-model
+`)
 let child
 try {
   child = spawn(process.execPath, [process.env.DSH_TEST_ENTRY, '--profile', 'headless', '--patch', path.join(root, 'test.patch.yml'), 'Perform the local release smoke test.'], { cwd: root, windowsHide: true, env: { ...process.env, DSH_HOME: dshHome, DSH_SMOKE_KEY: 'local-test-placeholder' }, stdio: ['ignore', 'pipe', 'pipe'] })
