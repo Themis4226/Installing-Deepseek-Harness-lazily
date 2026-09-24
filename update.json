@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "channel": "preview",
-  "publishedAt": "2026-09-11T03:31:00Z",
-  "minimumLauncherVersion": "1.4.3",
+  "publishedAt": "2026-09-24T16:24:38Z",
+  "minimumLauncherVersion": "1.4.4",
   "runtime": {
-    "version": "0.1.5-rc.1",
+    "version": "0.1.7-rc.2",
     "platform": "win32",
     "arch": "x64",
     "format": "dsh-runtime-zip-v1",
     "asset": {
-      "url": "https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases/download/v1.4.3/dsh-runtime-0.1.5-rc.1-win-x64.zip",
-      "size": 68191504,
-      "sha256": "de773ccf8a46e2cf0135a7ab1b3e2dea2ff9ce7301c9302b35551f26e5344ecb"
+      "url": "https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases/download/v1.4.4/dsh-runtime-0.1.7-rc.2-win-x64.zip",
+      "size": 160775277,
+      "sha256": "566414bf1cd3508b651da4f53f8d7fee3e481adeb33446f997ea64db4de37b77"
     }
   },
-  "releaseNotesUrl": "https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases/tag/v1.4.3"
+  "releaseNotesUrl": "https://github.com/Themis4226/Installing-Deepseek-Harness-lazily/releases/tag/v1.4.4"
 }
